@@ -15,13 +15,13 @@ import (
 )
 
 func (a *App) loadConfig() {
-	configFilePath, err := xdg.SearchConfigFile("p2dav/config.json")
+	configFilePath, err := xdg.SearchConfigFile("zome/config.json")
 	if err != nil {
 		logger.Error(err)
 	}
 
 	if configFilePath == "" { //https://github.com/adrg/xdg
-		configFilePath := xdg.ConfigHome + "p2dav/config.json"
+		configFilePath := xdg.ConfigHome + "zome/config.json"
 		uuid := uuid.New().String()
 		privateKey, publicKey, _ := kyberk2so.KemKeypair768()
 		pickleConfig := ConfigPickled{

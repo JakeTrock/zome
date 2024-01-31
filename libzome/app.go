@@ -8,7 +8,7 @@ import (
 	"github.com/ipfs/go-log/v2"
 )
 
-//https://github.com/libp2p/go-libp2p/tree/master/examples/chat-with-rendezvous
+//https://github.com/libp2p/go-libp2p/tree/master/examples/chat-with-mdns
 
 // NewApp creates a new App application struct
 func NewApp() *App {
@@ -26,10 +26,7 @@ func (a *App) Startup(ctx context.Context) {
 	log.SetAllLoggers(log.LevelWarn)
 	log.SetLogLevel("zome", "info")
 	help := flag.Bool("h", false, "Display Help")
-	config, err := ParseFlags()
-	if err != nil {
-		panic(err)
-	}
+	config := ParseFlags()
 
 	if *help {
 		fmt.Println("zome under construction")
@@ -38,7 +35,7 @@ func (a *App) Startup(ctx context.Context) {
 		return
 	}
 
-	initP2P(config)
+	initP2P(ctx, config)
 	a.loadConfig()
 
 }

@@ -4,7 +4,6 @@ import (
 	"flag"
 	"strings"
 
-	dht "github.com/libp2p/go-libp2p-kad-dht"
 	maddr "github.com/multiformats/go-multiaddr"
 )
 
@@ -41,23 +40,20 @@ func StringsToAddrs(addrStrings []string) (maddrs []maddr.Multiaddr, err error) 
 
 type Config struct {
 	RendezvousString string
-	BootstrapPeers   addrList
-	ListenAddresses  addrList
 	ProtocolID       string
+	listenHost       string
+	listenPort       int
 }
 
-func ParseFlags() (Config, error) {
+func ParseFlags() Config {
 	config := Config{}
 	flag.StringVar(&config.RendezvousString, "rendezvous", "meet me here",
 		"Unique string to identify group of nodes. Share this with your friends to let them connect with you")
-	flag.Var(&config.BootstrapPeers, "peer", "Adds a peer multiaddress to the bootstrap list")
-	flag.Var(&config.ListenAddresses, "listen", "Adds a multiaddress to the listen list")
 	flag.StringVar(&config.ProtocolID, "pid", "zome/v0", "Sets a protocol id for stream headers")
+	flag.StringVar(&config.listenHost, "host", "0.0.0.0", "The bootstrap node host listen address\n")
+	flag.IntVar(&config.listenPort, "port", 6171, "node listen port")
+
 	flag.Parse()
 
-	if len(config.BootstrapPeers) == 0 {
-		config.BootstrapPeers = dht.DefaultBootstrapPeers
-	}
-
-	return config, nil
+	return config
 }

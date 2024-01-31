@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@wailsio/runtime": "3.0.0-alpha.20",
     "preact": "^10.10.1"
   },
   "devDependencies": {
