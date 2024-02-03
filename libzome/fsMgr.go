@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/google/uuid"
+	guuid "github.com/google/uuid"
 	"golang.org/x/mod/sumdb/dirhash"
 
 	kyberk2so "github.com/symbolicsoft/kyber-k2so"
@@ -15,18 +15,25 @@ import (
 	"github.com/adrg/xdg"
 )
 
-func (a *App) LoadConfig() {
+func (a *App) LoadConfig(overrides map[string]string) {
 	configFilePath, err := xdg.SearchConfigFile("zome/config.json")
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	if configFilePath == "" { //https://github.com/adrg/xdg
+	if configFilePath == "" || err != nil { //https://github.com/adrg/xdg
 		configFilePath := xdg.ConfigHome + "zome/config.json"
-		uuid := uuid.New().String()
+		uuid := guuid.New().String()
+		if overrides["uuid"] != "" {
+			uuid = overrides["uuid"]
+		}
+
+		poolId := guuid.New().String()
+		if overrides["poolId"] != "" {
+			poolId = overrides["poolId"]
+		}
+
 		privateKey, publicKey, _ := kyberk2so.KemKeypair768()
 		pickleConfig := ConfigPickled{
 			uuid,
+			poolId,
 			"Anonymous",
 			base64.StdEncoding.EncodeToString(publicKey[:]),
 			base64.StdEncoding.EncodeToString(privateKey[:]),
@@ -38,6 +45,7 @@ func (a *App) LoadConfig() {
 
 		a.globalConfig = ConfigObject{
 			uuid,
+			poolId,
 			"Anonymous",
 			publicKey,
 			privateKey,
@@ -61,8 +69,17 @@ func (a *App) LoadConfig() {
 			copy(publicKey[:], publicKeyBytes)
 			unpickledKeypairs[k] = publicKey
 		}
+		uuid := cfgPickle.uuid
+		if overrides["uuid"] != "" {
+			uuid = overrides["uuid"]
+		}
+		poolId := cfgPickle.poolId
+		if overrides["poolId"] != "" {
+			poolId = overrides["poolId"]
+		}
 		a.globalConfig = ConfigObject{
-			cfgPickle.uuid,
+			uuid,
+			poolId,
 			cfgPickle.userName,
 			[1184]byte(publicKeyBytes),
 			[2400]byte(privateKeyBytes),

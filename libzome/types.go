@@ -8,10 +8,12 @@ import (
 type App struct {
 	ctx          context.Context
 	globalConfig ConfigObject
+	peerRoom     *ChatRoom
 }
 
 type ConfigObject struct {
 	uuid           string
+	poolId         string
 	userName       string
 	PubKey64       [1184]byte
 	PrivKey64      [2400]byte
@@ -21,6 +23,7 @@ type ConfigObject struct {
 
 type ConfigPickled struct {
 	uuid           string
+	poolId         string
 	userName       string
 	PubKey64       string
 	PrivKey64      string

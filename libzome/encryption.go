@@ -12,7 +12,7 @@ func (a *App) Encrypt(uuid string) ([1088]byte, error) { //https://github.com/Sy
 	if ok {
 		ciphertext, _, err := kyberk2so.KemEncrypt768(knownKey)
 		if err != nil {
-			logger.Error(err)
+			fmt.Errorf(err.Error())
 		}
 		return ciphertext, nil
 	}
@@ -24,7 +24,7 @@ func (a *App) Decrypt(ciphertext [1088]byte) ([32]byte, error) {
 	privateKey := a.globalConfig.PrivKey64
 	ssB, error := kyberk2so.KemDecrypt768(ciphertext, privateKey)
 	if error != nil {
-		logger.Error(error)
+		fmt.Errorf(error.Error())
 		return [32]byte{}, fmt.Errorf("error decrypting ciphertext")
 	}
 	return ssB, nil

@@ -7,10 +7,4 @@ func NewApp() *App {
 	return &App{}
 }
 
-// shutdown is called when the app is shutting down
-func (a *App) Shutdown() {
-	//todo: send save config signal
-	a.terminateConnection()
-}
-
 //https://archive.org/details/youtube-l4Kijuav3ts
