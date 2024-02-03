@@ -12,7 +12,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 
 	"github.com/multiformats/go-multiaddr"
-	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
 )
@@ -22,7 +21,7 @@ func (a *App) terminateConnection() bool {
 	return true
 }
 
-func receiveData(ctx context.Context, rw *bufio.ReadWriter) {
+func receiveData(rw *bufio.ReadWriter, EventEmit func(string, ...interface{})) {
 	for {
 		str, err := rw.ReadString('\n')
 		if err != nil {
@@ -35,13 +34,13 @@ func receiveData(ctx context.Context, rw *bufio.ReadWriter) {
 		}
 		if str != "\n" {
 			fmt.Printf("%s", str)
-			wruntime.EventsEmit(ctx, "peerData", str) //TODO: no sanitization here or below
+			EventEmit("peerData", str) //TODO: no sanitization here or below
 		}
 	}
 }
 
-func sendData(ctx context.Context, rw *bufio.ReadWriter) {
-	wruntime.EventsOn(ctx, "peerData", func(data ...interface{}) {
+func sendData(rw *bufio.ReadWriter, EventsOn func(string, func(...interface{}))) {
+	EventsOn("peerData", func(data ...interface{}) {
 		_, err := rw.WriteString(fmt.Sprintf("%s\n", data))
 		if err != nil {
 			fmt.Println("Error writing to buffer")
@@ -55,7 +54,7 @@ func sendData(ctx context.Context, rw *bufio.ReadWriter) {
 	})
 }
 
-func initP2P(wailsContext context.Context, config Config) {
+func (a *App) InitP2P(config Config, EventEmit func(string, ...interface{}), EventsOn func(string, func(...interface{}))) {
 	portChoice := config.listenPort
 	//TODO: port collision handling
 
@@ -87,13 +86,13 @@ func initP2P(wailsContext context.Context, config Config) {
 	// This function is called when a peer initiates a connection and starts a stream with this peer.
 	host.SetStreamHandler(protocol.ID(config.ProtocolID), func(stream network.Stream) {
 		logger.Info("Got a new stream!")
-		wruntime.EventsEmit(ctx, "system", "Got a new stream!")
+		EventEmit("system", "Got a new stream!")
 
 		// Create a buffer stream for non-blocking read and write.
 		rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 
-		go receiveData(wailsContext, rw)
-		go sendData(wailsContext, rw)
+		go receiveData(rw, EventEmit)
+		go sendData(rw, EventsOn)
 
 		// 'stream' will stay open until you close it (or the other side closes it).
 	})
@@ -123,8 +122,8 @@ func initP2P(wailsContext context.Context, config Config) {
 		} else {
 			rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 
-			go receiveData(wailsContext, rw)
-			go sendData(wailsContext, rw)
+			go receiveData(rw, EventEmit)
+			go sendData(rw, EventsOn)
 			fmt.Println("Connected to:", peer)
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/google/uuid"
@@ -14,10 +15,10 @@ import (
 	"github.com/adrg/xdg"
 )
 
-func (a *App) loadConfig() {
+func (a *App) LoadConfig() {
 	configFilePath, err := xdg.SearchConfigFile("zome/config.json")
 	if err != nil {
-		logger.Error(err)
+		log.Fatal(err)
 	}
 
 	if configFilePath == "" { //https://github.com/adrg/xdg
@@ -47,7 +48,7 @@ func (a *App) loadConfig() {
 		//load config
 		cfile, err := os.ReadFile(configFilePath)
 		if err != nil {
-			logger.Error("Error when opening file: ", err)
+			log.Fatal("Error when opening file: ", err)
 		}
 		var cfgPickle ConfigPickled
 		err = json.Unmarshal(cfile, &cfgPickle)
@@ -69,30 +70,30 @@ func (a *App) loadConfig() {
 			cfgPickle.enabledPlugins,
 		}
 		if err != nil {
-			logger.Error("Error during Unmarshal(): ", err)
+			log.Fatal("Error during Unmarshal(): ", err)
 		}
 	}
 }
 
 // TODO: plugin import logic
-func (a *App) refreshPlugins() {
+func (a *App) RefreshPlugins() {
 	uuid := a.globalConfig.uuid
 	okPlugins := a.globalConfig.enabledPlugins
 	newPlugins := make(map[string]string)
 
-	configFilePath := xdg.ConfigHome + "p2dav/plugins-" + uuid
+	configFilePath := xdg.ConfigHome + "zome/plugins-" + uuid
 	subfolders, err := os.ReadDir(configFilePath)
 	if err != nil {
-		logger.Error(err)
+		log.Fatal(err)
 	}
 	for _, fileEntry := range subfolders {
 		if fileEntry.IsDir() {
 			hash, err := dirhash.HashDir(configFilePath+"/"+fileEntry.Name(), "", dirhash.Hash1)
 			if err != nil {
-				logger.Error(err)
+				log.Fatal(err)
 			}
 			if hash != "" {
-				logger.Error("Error: empty hash")
+				log.Fatal("Error: empty hash")
 			}
 			newPlugins[hash] = fileEntry.Name()
 		}
