@@ -3,8 +3,9 @@ package zomeui
 import (
 	"runtime"
 
+	libzome "zome/libzome"
+
 	"gioui.org/widget/material"
-	libzome "github.com/jaketrock/zome/libzome"
 )
 
 type Platform int

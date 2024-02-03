@@ -3,7 +3,6 @@ package libzome
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -45,13 +44,10 @@ func (a *App) InitP2P() {
 	}
 
 	// use the nickname from the cli flag, or a default if blank
-	nick := *&a.globalConfig.uuid
-	if len(nick) == 0 {
-		nick = defaultNick(h.ID())
-	}
+	nick := a.globalConfig.uuid
 
 	// join the room from the cli flag, or the flag default
-	room := *&a.globalConfig.poolId
+	room := a.globalConfig.poolId
 
 	// join the chat room
 	cr, err := JoinChatRoom(ctx, ps, h.ID(), nick, room)
@@ -61,23 +57,6 @@ func (a *App) InitP2P() {
 
 	fmt.Printf("joined chat room %s as %s\n", room, nick)
 	a.peerRoom = cr
-}
-
-// printErr is like fmt.Printf, but writes to stderr.
-func printErr(m string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, m, args...)
-}
-
-// defaultNick generates a nickname based on the $USER environment variable and
-// the last 8 chars of a peer ID.
-func defaultNick(p peer.ID) string {
-	return fmt.Sprintf("%s-%s", os.Getenv("USER"), shortID(p))
-}
-
-// shortID returns the last 8 chars of a base58-encoded peer id.
-func shortID(p peer.ID) string {
-	pretty := p.String()
-	return pretty[len(pretty)-8:]
 }
 
 // discoveryNotifee gets notified when we find a new peer via mDNS discovery

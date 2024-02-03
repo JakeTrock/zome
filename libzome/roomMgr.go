@@ -85,6 +85,14 @@ func (cr *ChatRoom) ListPeers() []peer.ID {
 	return cr.ps.ListPeers(topicName(cr.roomName))
 }
 
+func (cr *ChatRoom) GetRoomName() string {
+	return cr.roomName
+}
+
+func (cr *ChatRoom) GetRoomNick() string {
+	return cr.nick
+}
+
 // readLoop pulls messages from the pubsub topic and pushes them onto the Messages channel.
 func (cr *ChatRoom) readLoop() {
 	for {

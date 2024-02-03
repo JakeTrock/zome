@@ -7,9 +7,10 @@ import (
 	"flag"
 	"fmt"
 
+	libzome "zome/libzome"
+	zomeui "zome/zomeui"
+
 	"gioui.org/app"
-	libzome "github.com/jaketrock/zome/libzome"
-	zomeui "github.com/jaketrock/zome/zomeui"
 )
 
 func main() {
@@ -40,7 +41,7 @@ func main() {
 
 		//visual
 		w := app.NewWindow()
-		err := zomeui.InitUi(w)
+		err := zomeFrontend.InitUi(w)
 		if err != nil {
 			log.Fatal(err)
 		}

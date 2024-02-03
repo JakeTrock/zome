@@ -13,12 +13,8 @@ import (
 )
 
 func (st *UiState) InitUi(w *app.Window) error { //TODO: move to folder https://github.com/planetdecred/godcr/tree/master/ui
-	if st.app.peerRoom == nil {
-		panic("App not initialized")
-	}
 
-	// title a.peerRoom.roomName
-	// you a.peerRoom.nick
+	roomInst := st.app.GetRoom()
 
 	th := st.uiStyle
 
@@ -45,7 +41,7 @@ func (st *UiState) InitUi(w *app.Window) error { //TODO: move to folder https://
 			title.Layout(gtx)
 
 			// create a text box to contain our chat messages
-			msgBox := material.Editor(th, new(widget.Editor), "Room: "+a.peerRoom.roomName)
+			msgBox := material.Editor(th, new(widget.Editor), "Room: "+roomInst.GetRoomName())
 			msgBox.Layout(gtx)
 
 			// Define a button with the label "Click me".
