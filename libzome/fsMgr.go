@@ -19,7 +19,15 @@ func (a *App) LoadConfig(overrides map[string]string) {
 	configFilePath, err := xdg.SearchConfigFile("zome/config.json")
 
 	if configFilePath == "" || err != nil { //https://github.com/adrg/xdg
-		configFilePath := xdg.ConfigHome + "zome/config.json"
+		fmt.Println("Creating new config file")
+		if err != nil {
+			fmt.Println(err)
+		}
+		configFilePath, err := xdg.ConfigFile("/zome/config.json")
+		if err != nil {
+			log.Fatal("Error when creating file: ", err)
+		}
+		fmt.Println(configFilePath)
 		uuid := guuid.New().String()
 		if overrides["uuid"] != "" {
 			uuid = overrides["uuid"]
@@ -40,9 +48,12 @@ func (a *App) LoadConfig(overrides map[string]string) {
 			make(map[string]string),
 			[]string{},
 		}
+		fmt.Println(pickleConfig)
 		pickleConfigBytes, _ := json.Marshal(pickleConfig)
-		os.WriteFile(configFilePath, pickleConfigBytes, 0644)
-
+		err = os.WriteFile(configFilePath, pickleConfigBytes, 0644)
+		if err != nil {
+			log.Fatal("Error when writing file: ", err)
+		}
 		a.globalConfig = ConfigObject{
 			uuid,
 			poolId,
@@ -53,6 +64,7 @@ func (a *App) LoadConfig(overrides map[string]string) {
 			[]string{},
 		}
 	} else {
+		fmt.Println("Loading existing config file")
 		//load config
 		cfile, err := os.ReadFile(configFilePath)
 		if err != nil {
@@ -60,31 +72,33 @@ func (a *App) LoadConfig(overrides map[string]string) {
 		}
 		var cfgPickle ConfigPickled
 		err = json.Unmarshal(cfile, &cfgPickle)
+		fmt.Println(cfgPickle)
+
 		publicKeyBytes, _ := base64.StdEncoding.DecodeString(cfgPickle.PubKey64)
 		privateKeyBytes, _ := base64.StdEncoding.DecodeString(cfgPickle.PrivKey64)
 		unpickledKeypairs := make(map[string][1184]byte)
-		for k, v := range cfgPickle.knownKeypairs {
+		for k, v := range cfgPickle.KnownKeypairs {
 			publicKeyBytes, _ := base64.StdEncoding.DecodeString(v)
 			var publicKey [1184]byte
 			copy(publicKey[:], publicKeyBytes)
 			unpickledKeypairs[k] = publicKey
 		}
-		uuid := cfgPickle.uuid
+		uuid := cfgPickle.Uuid
 		if overrides["uuid"] != "" {
 			uuid = overrides["uuid"]
 		}
-		poolId := cfgPickle.poolId
+		poolId := cfgPickle.PoolId
 		if overrides["poolId"] != "" {
 			poolId = overrides["poolId"]
 		}
 		a.globalConfig = ConfigObject{
 			uuid,
 			poolId,
-			cfgPickle.userName,
+			cfgPickle.UserName,
 			[1184]byte(publicKeyBytes),
 			[2400]byte(privateKeyBytes),
 			unpickledKeypairs,
-			cfgPickle.enabledPlugins,
+			cfgPickle.EnabledPlugins,
 		}
 		if err != nil {
 			log.Fatal("Error during Unmarshal(): ", err)

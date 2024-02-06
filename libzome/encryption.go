@@ -3,6 +3,7 @@ package libzome
 import (
 	"fmt"
 
+	"github.com/labstack/gommon/log"
 	kyberk2so "github.com/symbolicsoft/kyber-k2so"
 )
 
@@ -12,7 +13,7 @@ func (a *App) Encrypt(uuid string) ([1088]byte, error) { //https://github.com/Sy
 	if ok {
 		ciphertext, _, err := kyberk2so.KemEncrypt768(knownKey)
 		if err != nil {
-			fmt.Errorf(err.Error())
+			log.Fatal(err)
 		}
 		return ciphertext, nil
 	}
@@ -24,7 +25,7 @@ func (a *App) Decrypt(ciphertext [1088]byte) ([32]byte, error) {
 	privateKey := a.globalConfig.PrivKey64
 	ssB, error := kyberk2so.KemDecrypt768(ciphertext, privateKey)
 	if error != nil {
-		fmt.Errorf(error.Error())
+		fmt.Println("error decrypting ciphertext")
 		return [32]byte{}, fmt.Errorf("error decrypting ciphertext")
 	}
 	return ssB, nil

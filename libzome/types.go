@@ -22,11 +22,11 @@ type ConfigObject struct {
 }
 
 type ConfigPickled struct {
-	uuid           string
-	poolId         string
-	userName       string
+	Uuid           string
+	PoolId         string
+	UserName       string
 	PubKey64       string
 	PrivKey64      string
-	knownKeypairs  map[string]string
-	enabledPlugins []string
+	KnownKeypairs  map[string]string
+	EnabledPlugins []string
 }

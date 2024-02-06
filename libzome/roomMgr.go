@@ -18,6 +18,7 @@ const ChatRoomBufSize = 128
 type ChatRoom struct {
 	// Messages is a channel of messages received from other peers in the chat room
 	Messages chan *ChatMessage
+	inputCh  chan string
 
 	ctx   context.Context
 	ps    *pubsub.PubSub
@@ -60,6 +61,7 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 		nick:     nickname,
 		roomName: roomName,
 		Messages: make(chan *ChatMessage, ChatRoomBufSize),
+		inputCh:  make(chan string, 512), //TODO: may need to bump this
 	}
 
 	// start reading messages from the subscription in a loop
@@ -85,12 +87,25 @@ func (cr *ChatRoom) ListPeers() []peer.ID {
 	return cr.ps.ListPeers(topicName(cr.roomName))
 }
 
+// func (cr *ChatRoom) ListPeersString() []string {
+// 	peerRaw := cr.ps.ListPeers(topicName(cr.roomName))
+// 	peerStr := make([]string, len(peerRaw))
+// 	for i, p := range peerRaw {
+// 		peerStr[i] = p.String()
+// 	}
+// 	return peerStr
+// }
+
 func (cr *ChatRoom) GetRoomName() string {
 	return cr.roomName
 }
 
 func (cr *ChatRoom) GetRoomNick() string {
 	return cr.nick
+}
+
+func (cr *ChatRoom) Leave() {
+	cr.sub.Cancel()
 }
 
 // readLoop pulls messages from the pubsub topic and pushes them onto the Messages channel.

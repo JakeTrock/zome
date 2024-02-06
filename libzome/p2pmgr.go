@@ -3,6 +3,7 @@ package libzome
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -10,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
@@ -18,10 +20,10 @@ const DiscoveryInterval = time.Hour
 // DiscoveryServiceTag is used in our mDNS advertisements to discover other chat peers.
 const DiscoveryServiceTag = "libzome-sync"
 
-func (a *App) InitP2P() {
+func (a *App) InitP2P(appContext context.Context) {
 
 	if a.globalConfig.uuid == "" || a.globalConfig.poolId == "" {
-		panic("App not initialized")
+		log.Fatal("App not initialized")
 	}
 
 	ctx := context.Background()
@@ -29,7 +31,7 @@ func (a *App) InitP2P() {
 	// create a new libp2p Host that listens on a random TCP port
 	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"))
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
 	// create a new PubSub service using the GossipSub router
@@ -44,10 +46,13 @@ func (a *App) InitP2P() {
 	}
 
 	// use the nickname from the cli flag, or a default if blank
-	nick := a.globalConfig.uuid
+	nick := a.globalConfig.userName
 
 	// join the room from the cli flag, or the flag default
 	room := a.globalConfig.poolId
+
+	fmt.Println("nickname:", nick)
+	fmt.Println("room:", room)
 
 	// join the chat room
 	cr, err := JoinChatRoom(ctx, ps, h.ID(), nick, room)
@@ -57,6 +62,11 @@ func (a *App) InitP2P() {
 
 	fmt.Printf("joined chat room %s as %s\n", room, nick)
 	a.peerRoom = cr
+
+	runtime.EventsOn(appContext, "frontend-message", func(data ...interface{}) {
+		fmt.Println("frontend-message", data[0].(string))
+		a.peerRoom.inputCh <- data[0].(string)
+	})
 }
 
 // discoveryNotifee gets notified when we find a new peer via mDNS discovery
