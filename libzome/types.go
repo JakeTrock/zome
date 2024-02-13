@@ -12,7 +12,7 @@ type App struct {
 	cfgPath      string
 	globalConfig ConfigObject
 	Abilities    []string
-	overrides    map[string]string
+	Overrides    map[string]string
 
 	PeerRoom *ChatRoom //TODO: eventually instead of one public channel and ungranular perms, we should use private map[string]*ChatRoom
 	db       *bolt.DB

@@ -5,8 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"os"
+	"sync"
 
 	guuid "github.com/google/uuid"
 	"golang.org/x/mod/sumdb/dirhash"
@@ -285,37 +288,113 @@ func (a *App) FsCopyFileOrFolder(appId string, oldPath string, newPath string, i
 	return true, nil
 }
 
-//TODO: upload/download file logic
-
-//TODO: p2p file transfer logic(encrypted)
-
-// TODO: plugin import logic
-func (a *App) RefreshPlugins() {
-	uuid := a.globalConfig.uuid
-	okPlugins := a.globalConfig.enabledPlugins
-	newPlugins := make(map[string]string)
-
-	configFilePath := a.cfgPath + "/plugins-" + uuid
-	subfolders, err := os.ReadDir(configFilePath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, fileEntry := range subfolders {
-		if fileEntry.IsDir() {
-			hash, err := dirhash.HashDir(configFilePath+"/"+fileEntry.Name(), "", dirhash.Hash1)
-			if err != nil {
-				log.Fatal(err)
-			}
-			if hash != "" {
-				log.Fatal("Error: empty hash")
-			}
-			newPlugins[hash] = fileEntry.Name()
-		}
-	}
-	for _, plugin := range okPlugins {
-		if pluginPath, ok := newPlugins[plugin]; ok {
-			//TODO: load plugin from path
-			fmt.Println(pluginPath)
-		}
-	}
+var copyBufPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 4096)
+	},
 }
+
+func copyZeroAlloc(w io.Writer, r io.Reader) (int64, error) {
+	vbuf := copyBufPool.Get()
+	buf := vbuf.([]byte)
+	n, err := io.CopyBuffer(w, r, buf)
+	copyBufPool.Put(vbuf)
+	return n, err
+}
+
+func (a *App) FsUploadFile(appId string, file *multipart.FileHeader) (bool, error) {
+	uuid := a.globalConfig.uuid
+	refFilePath := a.cfgPath + "/files-" + uuid + "/" + appId + "/" + file.Filename
+	if isBadPath(refFilePath) {
+		return false, fmt.Errorf("bad path(cannot contain .. or ~)")
+	}
+	// save file to refFilePath
+	var (
+		f  multipart.File
+		ff *os.File
+	)
+	f, err := file.Open()
+	if err != nil {
+		return false, err
+	}
+
+	var ok bool
+	if ff, ok = f.(*os.File); ok {
+		// Windows can't rename files that are opened.
+		if err = f.Close(); err != nil {
+			return false, err
+		}
+
+		// If renaming fails we try the normal copying method.
+		// Renaming could fail if the files are on different devices.
+		if os.Rename(ff.Name(), refFilePath) == nil {
+			return true, nil
+		}
+
+		// Reopen f for the code below.
+		if f, err = file.Open(); err != nil {
+			return false, err
+		}
+	}
+
+	defer func() {
+		e := f.Close()
+		if err == nil {
+			err = e
+		}
+	}()
+
+	if ff, err = os.Create(refFilePath); err != nil {
+		return false, err
+	}
+	defer func() {
+		e := ff.Close()
+		if err == nil {
+			err = e
+		}
+	}()
+	_, err = copyZeroAlloc(ff, f)
+	return true, nil
+}
+
+func (a *App) FsDownloadFile(appId string, file string) (*os.File, error) {
+	uuid := a.globalConfig.uuid
+	refFilePath := a.cfgPath + "/files-" + uuid + "/" + appId + "/" + file
+	if isBadPath(refFilePath) {
+		return nil, fmt.Errorf("bad path(cannot contain .. or ~)")
+	}
+	return os.Open(refFilePath)
+}
+
+//TODO: p2p file transfer/sync logic(encrypted)
+
+// TODO: future plugin import logic
+// func (a *App) RefreshPlugins() {
+// 	uuid := a.globalConfig.uuid
+// 	okPlugins := a.globalConfig.enabledPlugins
+// 	newPlugins := make(map[string]string)
+
+// 	configFilePath := a.cfgPath + "/plugins-" + uuid
+// 	subfolders, err := os.ReadDir(configFilePath)
+// 	if err != nil {
+// 		log.Fatal(err)
+// 	}
+// 	for _, fileEntry := range subfolders {
+// 		if fileEntry.IsDir() {
+// 			hash, err := dirhash.HashDir(configFilePath+"/"+fileEntry.Name(), "", dirhash.Hash1)
+// 			if err != nil {
+// 				log.Fatal(err)
+// 			}
+// 			if hash != "" {
+// 				log.Fatal("Error: empty hash")
+// 			}
+// 			newPlugins[hash] = fileEntry.Name()
+// 		}
+// 	}
+// 	for _, plugin := range okPlugins {
+// 		if pluginPath, ok := newPlugins[plugin]; ok {
+// 			//TODO: load plugin from path
+// 			fmt.Println(pluginPath)
+// 		}
+// 	}
+// }

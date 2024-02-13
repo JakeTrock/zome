@@ -14,7 +14,7 @@ import (
 // NewApp creates a new App application struct
 func NewApp(overrides map[string]string) *App {
 	return &App{
-		overrides: overrides,
+		Overrides: overrides,
 	}
 }
 
@@ -23,8 +23,8 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.Abilities = []string{"database", "p2p", "encryption", "fs"} //TODO: in the future, all of these should be pluggable
 	//TODO: selectively start up the abilities based on the config
-	a.DbInit(a.overrides)
-	a.FsLoadConfig(a.overrides)
+	a.DbInit(a.Overrides)
+	a.FsLoadConfig(a.Overrides)
 	a.p2pInit(ctx)
 
 	a.HandleEvents(ctx)
