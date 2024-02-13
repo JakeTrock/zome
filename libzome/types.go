@@ -2,13 +2,20 @@ package libzome
 
 import (
 	"context"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 // App struct
 type App struct {
 	ctx          context.Context
+	cfgPath      string
 	globalConfig ConfigObject
-	peerRoom     *ChatRoom
+	Abilities    []string
+	overrides    map[string]string
+
+	PeerRoom *ChatRoom //TODO: eventually instead of one public channel and ungranular perms, we should use private map[string]*ChatRoom
+	db       *bolt.DB
 }
 
 type ConfigObject struct {

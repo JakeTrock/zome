@@ -11,7 +11,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
@@ -20,7 +19,7 @@ const DiscoveryInterval = time.Hour
 // DiscoveryServiceTag is used in our mDNS advertisements to discover other chat peers.
 const DiscoveryServiceTag = "libzome-sync"
 
-func (a *App) InitP2P(appContext context.Context) {
+func (a *App) p2pInit(appContext context.Context) {
 
 	if a.globalConfig.uuid == "" || a.globalConfig.poolId == "" {
 		log.Fatal("App not initialized")
@@ -61,12 +60,27 @@ func (a *App) InitP2P(appContext context.Context) {
 	}
 
 	fmt.Printf("joined chat room %s as %s\n", room, nick)
-	a.peerRoom = cr
+	a.PeerRoom = cr
 
-	runtime.EventsOn(appContext, "frontend-message", func(data ...interface{}) {
-		fmt.Println("frontend-message", data[0].(string))
-		a.peerRoom.inputCh <- data[0].(string)
-	})
+}
+
+func (a *App) P2PPushMessage(message string, appId string) {
+	sendObject := ChatMessagePre{
+		Message: message,
+		AppId:   appId,
+	}
+
+	fmt.Println("frontend-message", string(sendObject.Message), string(sendObject.AppId))
+	a.PeerRoom.inputCh <- sendObject
+}
+
+func (a *App) P2PGetPeers() []string {
+	peerIDs := a.PeerRoom.ListPeers()
+	peers := make([]string, len(peerIDs))
+	for i, id := range peerIDs {
+		peers[i] = id.String() //TODO: you can check this agains public keys and get the safety
+	}
+	return peers
 }
 
 // discoveryNotifee gets notified when we find a new peer via mDNS discovery

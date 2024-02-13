@@ -4,3 +4,6 @@ zome
 frontend/node_modules
 frontend/dist
 frontend/.DS_Store
+TODO.md
+zomeHeadless
+headlessBin/**

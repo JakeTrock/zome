@@ -7,7 +7,10 @@ import (
 	kyberk2so "github.com/symbolicsoft/kyber-k2so"
 )
 
-func (a *App) Encrypt(uuid string) ([1088]byte, error) { //https://github.com/SymbolicSoft/kyber-k2so
+//TODO: switch to dedisv4, add signing https://github.com/dedis/kyber/blob/master/examples/enc_test.go
+//TODO: perhaps also derive p2p id from keys
+
+func (a *App) EcEncrypt(uuid string) ([1088]byte, error) { //https://github.com/SymbolicSoft/kyber-k2so
 	//check if we have a keypair for this uuid
 	knownKey, ok := a.globalConfig.knownKeypairs[uuid]
 	if ok {
@@ -21,7 +24,7 @@ func (a *App) Encrypt(uuid string) ([1088]byte, error) { //https://github.com/Sy
 	return [1088]byte{}, fmt.Errorf("no keypair found for uuid %s", uuid)
 }
 
-func (a *App) Decrypt(ciphertext [1088]byte) ([32]byte, error) {
+func (a *App) EcDecrypt(ciphertext [1088]byte) ([32]byte, error) {
 	privateKey := a.globalConfig.PrivKey64
 	ssB, error := kyberk2so.KemDecrypt768(ciphertext, privateKey)
 	if error != nil {

@@ -18,7 +18,7 @@ const ChatRoomBufSize = 128
 type ChatRoom struct {
 	// Messages is a channel of messages received from other peers in the chat room
 	Messages chan *ChatMessage
-	inputCh  chan string
+	inputCh  chan ChatMessagePre
 
 	ctx   context.Context
 	ps    *pubsub.PubSub
@@ -30,10 +30,16 @@ type ChatRoom struct {
 	nick     string
 }
 
+type ChatMessagePre struct {
+	Message string
+	AppId   string
+}
+
 // ChatMessage gets converted to/from JSON and sent in the body of pubsub messages.
 type ChatMessage struct {
 	Message    string
 	SenderID   string
+	AppId      string
 	SenderNick string
 }
 
@@ -61,7 +67,7 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 		nick:     nickname,
 		roomName: roomName,
 		Messages: make(chan *ChatMessage, ChatRoomBufSize),
-		inputCh:  make(chan string, 512), //TODO: may need to bump this
+		inputCh:  make(chan ChatMessagePre, 512), //TODO: may need to bump this
 	}
 
 	// start reading messages from the subscription in a loop
@@ -70,11 +76,12 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 }
 
 // Publish sends a message to the pubsub topic.
-func (cr *ChatRoom) Publish(message string) error {
+func (cr *ChatRoom) Publish(pmsg ChatMessagePre) error { //TODO: encrypt before pushing
 	m := ChatMessage{
-		Message:    message,
+		Message:    pmsg.Message,
 		SenderID:   cr.self.String(),
 		SenderNick: cr.nick,
+		AppId:      pmsg.AppId,
 	}
 	msgBytes, err := json.Marshal(m)
 	if err != nil {
@@ -86,15 +93,6 @@ func (cr *ChatRoom) Publish(message string) error {
 func (cr *ChatRoom) ListPeers() []peer.ID {
 	return cr.ps.ListPeers(topicName(cr.roomName))
 }
-
-// func (cr *ChatRoom) ListPeersString() []string {
-// 	peerRaw := cr.ps.ListPeers(topicName(cr.roomName))
-// 	peerStr := make([]string, len(peerRaw))
-// 	for i, p := range peerRaw {
-// 		peerStr[i] = p.String()
-// 	}
-// 	return peerStr
-// }
 
 func (cr *ChatRoom) GetRoomName() string {
 	return cr.roomName

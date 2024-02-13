@@ -6,17 +6,21 @@ toolchain go1.21.6
 
 require (
 	github.com/adrg/xdg v0.4.0
+	github.com/gofiber/fiber/v2 v2.52.0
 	github.com/google/uuid v1.6.0
+	github.com/kalafut/imohash v1.0.2
 	github.com/labstack/gommon v0.4.2
 	github.com/libp2p/go-libp2p v0.32.2
 	github.com/libp2p/go-libp2p-pubsub v0.10.0
-	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/symbolicsoft/kyber-k2so v0.2.3
+	github.com/u-root/u-root v0.13.0
 	github.com/wailsapp/wails/v2 v2.6.0
+	go.etcd.io/bbolt v1.3.8
 	golang.org/x/mod v0.14.0
 )
 
 require (
+	github.com/andybalholm/brotli v1.0.5 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
@@ -62,6 +66,7 @@ require (
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/miekg/dns v1.1.58 // indirect
 	github.com/mikioh/tcpinfo v0.0.0-20190314235526-30a79bb1804b // indirect
 	github.com/mikioh/tcpopt v0.0.0-20190314235656-172688c1accc // indirect
@@ -95,8 +100,11 @@ require (
 	github.com/samber/lo v1.39.0 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/tkrajina/go-reflector v0.5.6 // indirect
+	github.com/twmb/murmur3 v1.1.5 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
+	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
+	github.com/valyala/tcplisten v1.0.0 // indirect
 	github.com/wailsapp/go-webview2 v1.0.10 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	go.uber.org/dig v1.17.1 // indirect

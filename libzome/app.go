@@ -2,7 +2,6 @@ package libzome
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -13,35 +12,22 @@ import (
 //https://github.com/libp2p/go-libp2p/tree/master/examples/chat-with-mdns
 
 // NewApp creates a new App application struct
-func NewApp() *App {
-	return &App{}
+func NewApp(overrides map[string]string) *App {
+	return &App{
+		overrides: overrides,
+	}
 }
 
 func (a *App) Startup(ctx context.Context) {
 	// Perform your setup here
 	a.ctx = ctx
-	a.InitP2P(ctx)
+	a.Abilities = []string{"database", "p2p", "encryption", "fs"} //TODO: in the future, all of these should be pluggable
+	//TODO: selectively start up the abilities based on the config
+	a.DbInit(a.overrides)
+	a.FsLoadConfig(a.overrides)
+	a.p2pInit(ctx)
 
 	a.HandleEvents(ctx)
-}
-
-func (a *App) Count() { //TODO: removeme
-	go func() {
-		count := 1
-
-		for {
-			if a.ctx == nil {
-				log.Printf("ctx is nil")
-				time.Sleep(1 * time.Second)
-				continue
-			}
-
-			log.Printf("emitting count: %v", count)
-			runtime.EventsEmit(a.ctx, "count", count)
-			time.Sleep(1 * time.Second)
-			count += 1
-		}
-	}()
 }
 
 // main event handler
@@ -51,35 +37,35 @@ func (a *App) HandleEvents(ctx context.Context) {
 
 	for {
 		select {
-		case input := <-a.peerRoom.inputCh:
+		case input := <-a.PeerRoom.inputCh:
 			// when the user types in a line, publish it to the chat room and print to the message window
-			err := a.peerRoom.Publish(input)
+			err := a.PeerRoom.Publish(input)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-		case m := <-a.peerRoom.Messages:
-			// when we receive a message from the chat room, print it to the message window
-			fmt.Println("msgJson", m)
-			mJSON, err := json.Marshal(m)
-			if err != nil {
-				log.Fatal(err)
-			}
-			mStr := string(mJSON)
-			fmt.Println("msgJson", mStr)
-			runtime.EventsEmit(ctx, "system-message", m)
+		// case m := <-a.PeerRoom.Messages:
+		// 	// when we receive a message from the chat room, print it to the message window
+		// 	fmt.Println("msgJson", m)
+		// 	mJSON, err := json.Marshal(m)
+		// 	if err != nil {
+		// 		log.Fatal(err)
+		// 	}
+		// 	mStr := string(mJSON)
+		// 	fmt.Println("msgJson", mStr)
+		// 	runtime.EventsEmit(ctx, "system-message", m)
 
 		case <-peerRefreshTicker.C:
 			// refresh the list of peers in the chat room periodically
-			peerRaw := a.peerRoom.ListPeers()
+			peerRaw := a.PeerRoom.ListPeers()
 			peerStr := make([]string, len(peerRaw))
 			for i, p := range peerRaw {
 				peerStr[i] = p.String()
 			}
 			fmt.Println("peersJson", peerStr)
-			runtime.EventsEmit(ctx, "system-peers", peerStr)
+			runtime.EventsEmit(ctx, "system-peers", peerStr) //TODO: restify this
 
-		case <-a.peerRoom.ctx.Done():
+		case <-a.PeerRoom.ctx.Done():
 			return
 		}
 	}
