@@ -16,7 +16,7 @@ import (
 // DiscoveryInterval is how often we re-publish our mDNS records.
 const DiscoveryInterval = time.Hour
 
-// DiscoveryServiceTag is used in our mDNS advertisements to discover other chat peers.
+// DiscoveryServiceTag is used in our mDNS advertisements to discover other peer peers.
 const DiscoveryServiceTag = "libzome-sync"
 
 func (a *App) p2pInit(appContext context.Context) {
@@ -53,19 +53,19 @@ func (a *App) p2pInit(appContext context.Context) {
 	fmt.Println("nickname:", nick)
 	fmt.Println("room:", room)
 
-	// join the chat room
-	cr, err := JoinChatRoom(ctx, ps, h.ID(), nick, room)
+	// join the peer room
+	cr, err := JoinPeerRoom(ctx, ps, h.ID(), nick, room)
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("joined chat room %s as %s\n", room, nick)
+	fmt.Printf("joined peer room %s as %s\n", room, nick)
 	a.PeerRoom = cr
 
 }
 
 func (a *App) P2PPushMessage(message string, appId string) {
-	sendObject := ChatMessagePre{
+	sendObject := PeerMessagePre{
 		Message: message,
 		AppId:   appId,
 	}

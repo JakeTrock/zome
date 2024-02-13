@@ -9,7 +9,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-//https://github.com/libp2p/go-libp2p/tree/master/examples/chat-with-mdns
+//https://github.com/libp2p/go-libp2p/tree/master/examples/peer-with-mdns
 
 // NewApp creates a new App application struct
 func NewApp(overrides map[string]string) *App {
@@ -38,14 +38,14 @@ func (a *App) HandleEvents(ctx context.Context) {
 	for {
 		select {
 		case input := <-a.PeerRoom.inputCh:
-			// when the user types in a line, publish it to the chat room and print to the message window
+			// when the user types in a line, publish it to the peer room and print to the message window
 			err := a.PeerRoom.Publish(input)
 			if err != nil {
 				log.Fatal(err)
 			}
 
 		// case m := <-a.PeerRoom.Messages:
-		// 	// when we receive a message from the chat room, print it to the message window
+		// 	// when we receive a message from the peer room, print it to the message window
 		// 	fmt.Println("msgJson", m)
 		// 	mJSON, err := json.Marshal(m)
 		// 	if err != nil {
@@ -56,7 +56,7 @@ func (a *App) HandleEvents(ctx context.Context) {
 		// 	runtime.EventsEmit(ctx, "system-message", m)
 
 		case <-peerRefreshTicker.C:
-			// refresh the list of peers in the chat room periodically
+			// refresh the list of peers in the peer room periodically
 			peerRaw := a.PeerRoom.ListPeers()
 			peerStr := make([]string, len(peerRaw))
 			for i, p := range peerRaw {

@@ -9,16 +9,16 @@ import (
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
-// ChatRoomBufSize is the number of incoming messages to buffer for each topic.
-const ChatRoomBufSize = 128
+// PeerRoomBufSize is the number of incoming messages to buffer for each topic.
+const PeerRoomBufSize = 128
 
-// ChatRoom represents a subscription to a single PubSub topic. Messages
-// can be published to the topic with ChatRoom.Publish, and received
+// PeerRoom represents a subscription to a single PubSub topic. Messages
+// can be published to the topic with PeerRoom.Publish, and received
 // messages are pushed to the Messages channel.
-type ChatRoom struct {
-	// Messages is a channel of messages received from other peers in the chat room
-	Messages chan *ChatMessage
-	inputCh  chan ChatMessagePre
+type PeerRoom struct {
+	// Messages is a channel of messages received from other peers in the peer room
+	Messages chan *PeerMessage
+	inputCh  chan PeerMessagePre
 
 	ctx   context.Context
 	ps    *pubsub.PubSub
@@ -30,22 +30,22 @@ type ChatRoom struct {
 	nick     string
 }
 
-type ChatMessagePre struct {
+type PeerMessagePre struct {
 	Message string
 	AppId   string
 }
 
-// ChatMessage gets converted to/from JSON and sent in the body of pubsub messages.
-type ChatMessage struct {
+// PeerMessage gets converted to/from JSON and sent in the body of pubsub messages.
+type PeerMessage struct {
 	Message    string
 	SenderID   string
 	AppId      string
 	SenderNick string
 }
 
-// JoinChatRoom tries to subscribe to the PubSub topic for the room name, returning
-// a ChatRoom on success.
-func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickname string, roomName string) (*ChatRoom, error) {
+// JoinPeerRoom tries to subscribe to the PubSub topic for the room name, returning
+// a PeerRoom on success.
+func JoinPeerRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickname string, roomName string) (*PeerRoom, error) {
 	// join the pubsub topic
 	topic, err := ps.Join(topicName(roomName))
 	if err != nil {
@@ -58,7 +58,7 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 		return nil, err
 	}
 
-	cr := &ChatRoom{
+	cr := &PeerRoom{
 		ctx:      ctx,
 		ps:       ps,
 		topic:    topic,
@@ -66,8 +66,8 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 		self:     selfID,
 		nick:     nickname,
 		roomName: roomName,
-		Messages: make(chan *ChatMessage, ChatRoomBufSize),
-		inputCh:  make(chan ChatMessagePre, 512), //TODO: may need to bump this
+		Messages: make(chan *PeerMessage, PeerRoomBufSize),
+		inputCh:  make(chan PeerMessagePre, 512), //TODO: may need to bump this
 	}
 
 	// start reading messages from the subscription in a loop
@@ -76,8 +76,8 @@ func JoinChatRoom(ctx context.Context, ps *pubsub.PubSub, selfID peer.ID, nickna
 }
 
 // Publish sends a message to the pubsub topic.
-func (cr *ChatRoom) Publish(pmsg ChatMessagePre) error { //TODO: encrypt before pushing
-	m := ChatMessage{
+func (cr *PeerRoom) Publish(pmsg PeerMessagePre) error { //TODO: encrypt before pushing
+	m := PeerMessage{
 		Message:    pmsg.Message,
 		SenderID:   cr.self.String(),
 		SenderNick: cr.nick,
@@ -90,24 +90,24 @@ func (cr *ChatRoom) Publish(pmsg ChatMessagePre) error { //TODO: encrypt before 
 	return cr.topic.Publish(cr.ctx, msgBytes)
 }
 
-func (cr *ChatRoom) ListPeers() []peer.ID {
+func (cr *PeerRoom) ListPeers() []peer.ID {
 	return cr.ps.ListPeers(topicName(cr.roomName))
 }
 
-func (cr *ChatRoom) GetRoomName() string {
+func (cr *PeerRoom) GetRoomName() string {
 	return cr.roomName
 }
 
-func (cr *ChatRoom) GetRoomNick() string {
+func (cr *PeerRoom) GetRoomNick() string {
 	return cr.nick
 }
 
-func (cr *ChatRoom) Leave() {
+func (cr *PeerRoom) Leave() {
 	cr.sub.Cancel()
 }
 
 // readLoop pulls messages from the pubsub topic and pushes them onto the Messages channel.
-func (cr *ChatRoom) readLoop() {
+func (cr *PeerRoom) readLoop() {
 	for {
 		msg, err := cr.sub.Next(cr.ctx)
 		if err != nil {
@@ -118,7 +118,7 @@ func (cr *ChatRoom) readLoop() {
 		if msg.ReceivedFrom == cr.self {
 			continue
 		}
-		cm := new(ChatMessage)
+		cm := new(PeerMessage)
 		err = json.Unmarshal(msg.Data, cm)
 		if err != nil {
 			continue
@@ -129,5 +129,5 @@ func (cr *ChatRoom) readLoop() {
 }
 
 func topicName(roomName string) string {
-	return "chat-room:" + roomName
+	return "peer-room:" + roomName
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-func sseAttach(c *fiber.Ctx, mChannel chan *libzome.ChatMessage, appId string) { //TODO: appid filtration logic should be inside libzome, also this shouldn't be just chatmessage
+func sseAttach(c *fiber.Ctx, mChannel chan *libzome.PeerMessage, appId string) { //TODO: appid filtration logic should be inside libzome, also this shouldn't be just peermessage
 	c.Set("Content-Type", "text/event-stream")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")

@@ -14,7 +14,7 @@ type App struct {
 	Abilities    []string
 	Overrides    map[string]string
 
-	PeerRoom *ChatRoom //TODO: eventually instead of one public channel and ungranular perms, we should use private map[string]*ChatRoom
+	PeerRoom *PeerRoom
 	db       *bolt.DB
 }
 
