@@ -3,6 +3,7 @@ package libzome
 import (
 	"context"
 
+	"go.dedis.ch/kyber/v3"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -22,9 +23,9 @@ type ConfigObject struct {
 	uuid           string
 	poolId         string
 	userName       string
-	PubKey64       [1184]byte
-	PrivKey64      [2400]byte
-	knownKeypairs  map[string][1184]byte
+	PubKeyHex      kyber.Point
+	PrivKeyHex     kyber.Scalar
+	knownKeypairs  map[string]kyber.Point
 	enabledPlugins []string //enabled plugins list of sha256 hashes
 }
 
@@ -32,8 +33,8 @@ type ConfigPickled struct {
 	Uuid           string
 	PoolId         string
 	UserName       string
-	PubKey64       string
-	PrivKey64      string
+	PubKeyHex      string
+	PrivKeyHex     string
 	KnownKeypairs  map[string]string
 	EnabledPlugins []string
 }

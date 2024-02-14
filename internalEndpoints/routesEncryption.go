@@ -1,29 +1,139 @@
 package internalEndpoints
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"zome/libzome"
+
+	"github.com/gofiber/fiber/v2"
+)
 
 func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) error {
 	switch data.FunctionType {
 	case "encrypt":
 		{
-			return c.Status(500).SendString("Not yet implemented") //TODO: implementme
+			type encryptValue struct {
+				cipherable string
+			}
+			subBody := encryptValue{}
+			err := c.BodyParser(&subBody)
+			if err != nil {
+				return c.Status(400).SendString("error parsing request")
+			}
+			ecResult, err := a.zome.EcEncrypt(data.ApplicationTargetId, []byte(subBody.cipherable))
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			return c.JSON(fiber.Map{
+				"applicationTargetId": data.ApplicationTargetId,
+				"requestId":           data.RequestId,
+				"result":              ecResult,
+			})
 		}
 	case "decrypt":
 		{
-			return c.Status(500).SendString("Not yet implemented") //TODO: implementme
+			type decryptValue struct {
+				decipherable []libzome.MessagePod
+			}
+			subBody := decryptValue{}
+			err := c.BodyParser(&subBody)
+			if err != nil {
+				return c.Status(400).SendString("error parsing request")
+			}
+			ecResult, err := a.zome.EcDecrypt(subBody.decipherable)
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			return c.JSON(fiber.Map{
+				"applicationTargetId": data.ApplicationTargetId,
+				"requestId":           data.RequestId,
+				"result":              ecResult,
+			})
+
 		}
 	case "sign":
 		{
-			return c.Status(500).SendString("Not yet implemented") //TODO: implementme
+			type signValue struct {
+				toSign string
+			}
+			subBody := signValue{}
+			err := c.BodyParser(&subBody)
+			if err != nil {
+				return c.Status(400).SendString("error parsing request")
+			}
+			ecResult, err := a.zome.EcSign([]byte(subBody.toSign))
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			return c.JSON(fiber.Map{
+				"applicationTargetId": data.ApplicationTargetId,
+				"requestId":           data.RequestId,
+				"result":              ecResult,
+			})
 		}
 	case "checksig":
 		{
-			return c.Status(500).SendString("Not yet implemented") //TODO: implementme
+			type checksigValue struct {
+				toCheck string
+				sig     string
+			}
+			subBody := checksigValue{}
+			err := c.BodyParser(&subBody)
+			if err != nil {
+				return c.Status(400).SendString("error parsing request")
+			}
+			ecResult, err := a.zome.EcCheckSig([]byte(subBody.toCheck), subBody.sig)
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			return c.JSON(fiber.Map{
+				"applicationTargetId": data.ApplicationTargetId,
+				"requestId":           data.RequestId,
+				"result":              ecResult,
+			})
+		}
+	case "fileSign":
+		{
+			type fileSignValue struct {
+				filePath string
+			}
+			subBody := fileSignValue{}
+			err := c.BodyParser(&subBody)
+			if err != nil {
+				return c.Status(400).SendString("error parsing request")
+			}
+			ecResult, err := a.zome.FsSignFile(data.ApplicationTargetId, subBody.filePath)
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			return c.JSON(fiber.Map{
+				"applicationTargetId": data.ApplicationTargetId,
+				"requestId":           data.RequestId,
+				"result":              ecResult,
+			})
+		}
+	case "fileCheckSig":
+		{
+			type fileCheckSigValue struct {
+				filePath string
+				sig      string
+			}
+			subBody := fileCheckSigValue{}
+			err := c.BodyParser(&subBody)
+			if err != nil {
+				return c.Status(400).SendString("error parsing request")
+			}
+			ecResult, err := a.zome.FsCheckSigFile(data.ApplicationTargetId, subBody.filePath, subBody.sig)
+			if err != nil {
+				return c.Status(500).SendString(err.Error())
+			}
+			return c.JSON(fiber.Map{
+				"applicationTargetId": data.ApplicationTargetId,
+				"requestId":           data.RequestId,
+				"result":              ecResult,
+			})
 		}
 	default:
 		{
 			return c.Status(400).SendString("Bad Request Function Type")
 		}
 	}
-	return c.Status(500).SendString("Unknown Error encryption")
 }

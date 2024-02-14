@@ -1,7 +1,6 @@
 package libzome
 
 import (
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,7 +13,9 @@ import (
 	guuid "github.com/google/uuid"
 	"golang.org/x/mod/sumdb/dirhash"
 
-	kyberk2so "github.com/symbolicsoft/kyber-k2so"
+	"go.dedis.ch/kyber/v3"
+	"go.dedis.ch/kyber/v3/group/edwards25519"
+	encoder "go.dedis.ch/kyber/v3/util/encoding"
 
 	"strings"
 
@@ -41,19 +42,27 @@ func createConfigFile(cfPath string) {
 	uuid := guuid.New().String()
 	poolId := guuid.New().String()
 
-	privateKey, publicKey, _ := kyberk2so.KemKeypair768()
+	privateKey, publicKey := newKp()
+
+	suite := edwards25519.NewBlakeSHA256Ed25519()
+	pvhex, err := encoder.ScalarToStringHex(suite, privateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	pbhex, err := encoder.PointToStringHex(suite, publicKey)
+
 	pickleConfig := ConfigPickled{
 		uuid,
 		poolId,
 		"Anonymous",
-		base64.StdEncoding.EncodeToString(publicKey[:]),
-		base64.StdEncoding.EncodeToString(privateKey[:]),
+		pvhex,
+		pbhex,
 		make(map[string]string),
 		[]string{},
 	}
 	fmt.Println(pickleConfig)
 	pickleConfigBytes, _ := json.Marshal(pickleConfig)
-	err := os.WriteFile(cfPath, pickleConfigBytes, 0644)
+	err = os.WriteFile(cfPath, pickleConfigBytes, 0644)
 	if err != nil {
 		log.Fatal("Error when writing file: ", err)
 	}
@@ -108,14 +117,18 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 	err = json.Unmarshal(cfile, &cfgPickle)
 	fmt.Println(cfgPickle)
 
-	publicKeyBytes, _ := base64.StdEncoding.DecodeString(cfgPickle.PubKey64)
-	privateKeyBytes, _ := base64.StdEncoding.DecodeString(cfgPickle.PrivKey64)
-	unpickledKeypairs := make(map[string][1184]byte)
+	suite := edwards25519.NewBlakeSHA256Ed25519()
+
+	publicKeyBytes, _ := encoder.StringHexToPoint(suite, cfgPickle.PubKeyHex)
+	privateKeyBytes, _ := encoder.StringHexToScalar(suite, cfgPickle.PrivKeyHex)
+	unpickledKeypairs := make(map[string]kyber.Point)
+
 	for k, v := range cfgPickle.KnownKeypairs {
-		publicKeyBytes, _ := base64.StdEncoding.DecodeString(v)
-		var publicKey [1184]byte
-		copy(publicKey[:], publicKeyBytes)
-		unpickledKeypairs[k] = publicKey
+		spt, err := encoder.StringHexToPoint(suite, v)
+		if err != nil {
+			log.Fatal(err)
+		}
+		unpickledKeypairs[k] = spt
 	}
 	uuid := cfgPickle.Uuid
 	if overrides["uuid"] != "" {
@@ -129,8 +142,8 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 		uuid,
 		poolId,
 		cfgPickle.UserName,
-		[1184]byte(publicKeyBytes),
-		[2400]byte(privateKeyBytes),
+		publicKeyBytes,
+		privateKeyBytes,
 		unpickledKeypairs,
 		cfgPickle.EnabledPlugins,
 	}
@@ -364,6 +377,36 @@ func (a *App) FsDownloadFile(appId string, file string) (*os.File, error) {
 		return nil, fmt.Errorf("bad path(cannot contain .. or ~)")
 	}
 	return os.Open(refFilePath)
+}
+
+func (a *App) FsSignFile(appId string, file string) (string, error) {
+	uuid := a.globalConfig.uuid
+	refFilePath := a.cfgPath + "/files-" + uuid + "/" + appId + "/" + file
+	if isBadPath(refFilePath) {
+		return "", fmt.Errorf("bad path(cannot contain .. or ~)")
+	}
+	fileBytes, err := os.ReadFile(refFilePath)
+	if err != nil {
+		return "", err
+	}
+	sig, err := a.EcSign(fileBytes)
+	if err != nil {
+		return "", err
+	}
+	return sig, nil
+}
+
+func (a *App) FsCheckSigFile(appId string, file string, sig string) (bool, error) {
+	uuid := a.globalConfig.uuid
+	refFilePath := a.cfgPath + "/files-" + uuid + "/" + appId + "/" + file
+	if isBadPath(refFilePath) {
+		return false, fmt.Errorf("bad path(cannot contain .. or ~)")
+	}
+	fileBytes, err := os.ReadFile(refFilePath)
+	if err != nil {
+		return false, err
+	}
+	return a.EcCheckSig(fileBytes, sig)
 }
 
 //TODO: p2p file transfer/sync logic(encrypted)
