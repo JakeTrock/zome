@@ -19,14 +19,24 @@ type App struct {
 	db       *bolt.DB
 }
 
+type PeerState struct {
+	key      kyber.Point
+	approved bool
+}
+
 type ConfigObject struct {
 	uuid           string
 	poolId         string
 	userName       string
 	PubKeyHex      kyber.Point
 	PrivKeyHex     kyber.Scalar
-	knownKeypairs  map[string]kyber.Point
+	knownKeypairs  map[string]PeerState
 	enabledPlugins []string //enabled plugins list of sha256 hashes
+}
+
+type PeerStatePickled struct {
+	key      string
+	approved bool
 }
 
 type ConfigPickled struct {
@@ -35,6 +45,6 @@ type ConfigPickled struct {
 	UserName       string
 	PubKeyHex      string
 	PrivKeyHex     string
-	KnownKeypairs  map[string]string
+	KnownKeypairs  map[string]PeerStatePickled
 	EnabledPlugins []string
 }

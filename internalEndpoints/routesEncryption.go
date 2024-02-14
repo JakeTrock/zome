@@ -18,7 +18,13 @@ func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) erro
 			if err != nil {
 				return c.Status(400).SendString("error parsing request")
 			}
-			ecResult, err := a.zome.EcEncrypt(data.ApplicationTargetId, []byte(subBody.cipherable))
+			ecResult := []libzome.MessagePod{}
+
+			cipherableBytes := []byte(subBody.cipherable)
+			err = a.zome.EcEncrypt(data.ApplicationTargetId, &cipherableBytes, func(input libzome.MessagePod) error {
+				ecResult = append(ecResult, input)
+				return nil
+			})
 			if err != nil {
 				return c.Status(500).SendString(err.Error())
 			}

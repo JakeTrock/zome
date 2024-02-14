@@ -10,16 +10,23 @@ import (
 	"go.dedis.ch/kyber/v3/util/random"
 )
 
-func ElGamalEncrypt(group kyber.Group, pubkey kyber.Point, message []byte) (
-	K, C kyber.Point, remainder []byte) {
+// altered from stock to use pointers
+func ElGamalEncrypt(group kyber.Group, pubkey kyber.Point, message *[]byte, lastOffset int) (
+	K, C kyber.Point, offset int, complete bool) {
+
+	messageSize := group.Point().EmbedLen()
+	if messageSize > len(*message) {
+		messageSize = len(*message)
+		complete = true
+	}
+
+	offsetMessage := (*message)[lastOffset : lastOffset+messageSize]
 
 	// Embed the message (or as much of it as will fit) into a curve point.
-	M := group.Point().Embed(message, random.New())
-	max := group.Point().EmbedLen()
-	if max > len(message) {
-		max = len(message)
-	}
-	remainder = message[max:]
+	M := group.Point().Embed(offsetMessage, random.New())
+
+	complete = offset+messageSize >= len(*message)
+	offset = messageSize + lastOffset
 	// ElGamal-encrypt the point to produce ciphertext (K,C).
 	k := group.Scalar().Pick(random.New()) // ephemeral private key
 	K = group.Point().Mul(k, nil)          // ephemeral DH public key
@@ -44,19 +51,6 @@ func newKp() (kyber.Scalar, kyber.Point) {
 	private := suite.Scalar().Pick(random.New())
 	public := suite.Point().Mul(private, nil)
 	return private, public
-}
-
-func getPrivateKeyFromString(privateKeyStr string) (kyber.Scalar, error) {
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-	privateKeyBytes, err := hex.DecodeString(privateKeyStr)
-	if err != nil {
-		return nil, err
-	}
-	privateKey := suite.Scalar().SetBytes(privateKeyBytes)
-	if privateKey == nil {
-		return nil, fmt.Errorf("invalid private key")
-	}
-	return privateKey, nil
 }
 
 type SignSuite interface {
@@ -136,32 +130,46 @@ func SchnorrVerify(suite SignSuite, message []byte, publicKey kyber.Point,
 type MessagePod struct {
 	sharedSecret kyber.Point
 	ciphertext   kyber.Point
+	index        int
 }
 
-func (a *App) EcEncrypt(uuid string, input []byte) ([]MessagePod, error) {
+//TODO: remake using streams
+// https://github.com/reugn/go-streams/blob/7e7870067fc1/examples/fs/main.go
+// https://github.com/reugn/go-streams/blob/7e7870067fc1/examples/ws/main.go
+
+func (a *App) EcEncrypt(uuid string, input *[]byte, messageHook func(input MessagePod) error) error {
 	suite := edwards25519.NewBlakeSHA256Ed25519()
+	messageSize := suite.Point().EmbedLen()
 	//check if we have a keypair for this uuid
 	pubKey, ok := a.globalConfig.knownKeypairs[uuid]
 	if !ok {
-		return nil, fmt.Errorf("no keypair found for uuid")
+		return fmt.Errorf("no keypair found for uuid")
 	}
 
 	// ElGamal-encrypt a message using the public key.
 
-	var messagePods []MessagePod
-	remainder := input
+	offset := 0
+	completed := false
 
-	for len(remainder) > 0 {
-		K, C, remains := ElGamalEncrypt(suite, pubKey, remainder)
-		messagePods = append(messagePods, MessagePod{sharedSecret: K, ciphertext: C})
-		remainder = remains
+	for !completed {
+		K, C, offsetRet, complete := ElGamalEncrypt(suite, pubKey.key, input, offset)
+		err := messageHook(MessagePod{sharedSecret: K, ciphertext: C, index: offsetRet / messageSize})
+		if err != nil {
+			return err
+		}
+		offset = offsetRet
+		completed = complete
 	}
 
-	return messagePods, nil
+	return nil
 
 }
 
 func (a *App) EcDecrypt(pods []MessagePod) ([]byte, error) {
+
+	//TODO: new function needed to address one pod at a time, assemble them into a cache, use index to reassemble,
+	//rerequest broken pods
+
 	suite := edwards25519.NewBlakeSHA256Ed25519()
 	// Decrypt it using the corresponding private key.
 	var message []byte

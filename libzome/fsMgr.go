@@ -13,7 +13,6 @@ import (
 	guuid "github.com/google/uuid"
 	"golang.org/x/mod/sumdb/dirhash"
 
-	"go.dedis.ch/kyber/v3"
 	"go.dedis.ch/kyber/v3/group/edwards25519"
 	encoder "go.dedis.ch/kyber/v3/util/encoding"
 
@@ -50,6 +49,9 @@ func createConfigFile(cfPath string) {
 		log.Fatal(err)
 	}
 	pbhex, err := encoder.PointToStringHex(suite, publicKey)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	pickleConfig := ConfigPickled{
 		uuid,
@@ -57,12 +59,51 @@ func createConfigFile(cfPath string) {
 		"Anonymous",
 		pvhex,
 		pbhex,
-		make(map[string]string),
+		make(map[string]PeerStatePickled),
 		[]string{},
 	}
 	fmt.Println(pickleConfig)
 	pickleConfigBytes, _ := json.Marshal(pickleConfig)
 	err = os.WriteFile(cfPath, pickleConfigBytes, 0644)
+	if err != nil {
+		log.Fatal("Error when writing file: ", err)
+	}
+}
+
+func (a *App) FsSaveConfig() { //TODO: active save this
+	configFilePath := a.cfgPath + "/zome/config.json"
+	suite := edwards25519.NewBlakeSHA256Ed25519()
+	fmt.Println("Saving config file")
+	fmt.Println(configFilePath)
+	pvhex, err := encoder.ScalarToStringHex(suite, a.globalConfig.PrivKeyHex)
+	if err != nil {
+		log.Fatal(err)
+	}
+	pbhex, err := encoder.PointToStringHex(suite, a.globalConfig.PubKeyHex)
+	if err != nil {
+		log.Fatal(err)
+	}
+	pickleConfig := ConfigPickled{
+		a.globalConfig.uuid,
+		a.globalConfig.poolId,
+		a.globalConfig.userName,
+		pvhex,
+		pbhex,
+		make(map[string]PeerStatePickled),
+		a.globalConfig.enabledPlugins,
+	}
+	for k, v := range a.globalConfig.knownKeypairs {
+		khex, err := encoder.PointToStringHex(suite, v.key)
+		pickleConfig.KnownKeypairs[k] = PeerStatePickled{
+			key:      khex,
+			approved: v.approved,
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	pickleConfigBytes, _ := json.Marshal(pickleConfig)
+	err = os.WriteFile(configFilePath, pickleConfigBytes, 0644)
 	if err != nil {
 		log.Fatal("Error when writing file: ", err)
 	}
@@ -121,14 +162,14 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 
 	publicKeyBytes, _ := encoder.StringHexToPoint(suite, cfgPickle.PubKeyHex)
 	privateKeyBytes, _ := encoder.StringHexToScalar(suite, cfgPickle.PrivKeyHex)
-	unpickledKeypairs := make(map[string]kyber.Point)
+	unpickledKeypairs := make(map[string]PeerState)
 
 	for k, v := range cfgPickle.KnownKeypairs {
-		spt, err := encoder.StringHexToPoint(suite, v)
+		spt, err := encoder.StringHexToPoint(suite, v.key)
 		if err != nil {
 			log.Fatal(err)
 		}
-		unpickledKeypairs[k] = spt
+		unpickledKeypairs[k] = PeerState{key: spt, approved: false}
 	}
 	uuid := cfgPickle.Uuid
 	if overrides["uuid"] != "" {

@@ -6,7 +6,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"go.dedis.ch/kyber/v3"
+	"go.dedis.ch/kyber/v3/group/edwards25519"
+	encoder "go.dedis.ch/kyber/v3/util/encoding"
 )
 
 //https://github.com/libp2p/go-libp2p/tree/master/examples/peer-with-mdns
@@ -39,7 +41,15 @@ func (a *App) HandleEvents(ctx context.Context) {
 		select {
 		case input := <-a.PeerRoom.inputCh:
 			// when the user types in a line, publish it to the peer room and print to the message window
-			err := a.PeerRoom.Publish(input)
+			goodKeysList := []func(input *[]byte, mHook func(input MessagePod) error) error{}
+			for k, v := range a.globalConfig.knownKeypairs {
+				if v.approved {
+					goodKeysList = append(goodKeysList, func(input *[]byte, mHook func(input MessagePod) error) error {
+						return a.EcEncrypt(k, input, mHook)
+					})
+				}
+			}
+			err := a.PeerRoom.PublishCrypt(input, goodKeysList)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -63,7 +73,32 @@ func (a *App) HandleEvents(ctx context.Context) {
 				peerStr[i] = p.String()
 			}
 			fmt.Println("peersJson", peerStr)
-			runtime.EventsEmit(ctx, "system-peers", peerStr) //TODO: restify this
+
+			novelPeers := []string{}
+			for _, p := range peerStr {
+				_, ok := a.globalConfig.knownKeypairs[p]
+				if !ok {
+					novelPeers = append(novelPeers, p)
+				}
+			}
+			if len(novelPeers) == 0 {
+				continue
+			}
+			//create pubkeys from peerStr
+			suite := edwards25519.NewBlakeSHA256Ed25519()
+			newPubKeys := make(map[string]kyber.Point)
+			for _, p := range novelPeers {
+				publicKeyBytes, err := encoder.StringHexToPoint(suite, p)
+				if err == nil {
+					newPubKeys[p] = publicKeyBytes
+				}
+			}
+			for k, v := range newPubKeys {
+				a.globalConfig.knownKeypairs[k] = PeerState{key: v, approved: true} //TODO: URGENT this should be false as soon as key whitelist implemented
+			}
+			a.FsSaveConfig()
+
+			// runtime.EventsEmit(ctx, "system-peers", peerStr) //TODO: restify this
 
 		case <-a.PeerRoom.ctx.Done():
 			return

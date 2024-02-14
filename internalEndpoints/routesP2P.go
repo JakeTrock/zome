@@ -51,22 +51,23 @@ func sseAttach(c *fiber.Ctx, mChannel chan *libzome.PeerMessage, appId string) {
 func (a *ZomeApi) routesP2P(c *fiber.Ctx, data GenericRequestStruct) error {
 	switch data.FunctionType {
 	case "send":
-		type readRequest struct {
+		type sendRequest struct { //TODO: allow streaming upload for large sends
 			message string
 		}
-		subBody := readRequest{}
+		subBody := sendRequest{}
 		err := c.BodyParser(&subBody)
 		if err != nil {
 			return c.Status(400).SendString("error parsing request")
 		}
-		a.zome.P2PPushMessage(subBody.message, data.ApplicationTargetId)
+		messageBytes := []byte(subBody.message)
+		a.zome.P2PPushMessage(&messageBytes, data.RequestId, data.ApplicationTargetId)
 
 		return c.JSON(fiber.Map{
 			"applicationTargetId": data.ApplicationTargetId,
 			"requestId":           data.RequestId,
 		})
 	case "attachReadSSE":
-		sseAttach(c, a.zome.PeerRoom.Messages, data.ApplicationTargetId)
+		sseAttach(c, a.zome.PeerRoom.Messages, data.ApplicationTargetId) //TODO: reassembly should occur before this, this should get a full dereffed obj
 	case "getPeers":
 		peers := a.zome.P2PGetPeers()
 		return c.JSON(fiber.Map{

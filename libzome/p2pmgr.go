@@ -28,7 +28,11 @@ func (a *App) p2pInit(appContext context.Context) {
 	ctx := context.Background()
 
 	// create a new libp2p Host that listens on a random TCP port
-	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"))
+	h, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+		libp2p.EnableNATService(),
+	)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -54,23 +58,23 @@ func (a *App) p2pInit(appContext context.Context) {
 	fmt.Println("room:", room)
 
 	// join the peer room
-	cr, err := JoinPeerRoom(ctx, ps, h.ID(), nick, room)
+	cr, err := JoinPeerRoom(ctx, ps, nick, room, a.globalConfig.PubKeyHex)
 	if err != nil {
 		panic(err)
 	}
 
 	fmt.Printf("joined peer room %s as %s\n", room, nick)
 	a.PeerRoom = cr
-
 }
 
-func (a *App) P2PPushMessage(message string, appId string) {
-	sendObject := PeerMessagePre{
-		Message: message,
-		AppId:   appId,
+func (a *App) P2PPushMessage(message *[]byte, requestId string, appId string) {
+	sendObject := CipherMessagePre{
+		Message:   message,
+		RequestId: requestId,
+		AppId:     appId,
 	}
 
-	fmt.Println("frontend-message", string(sendObject.Message), string(sendObject.AppId))
+	fmt.Println("frontend-message", string(sendObject.RequestId), string(sendObject.AppId))
 	a.PeerRoom.inputCh <- sendObject
 }
 
