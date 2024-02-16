@@ -1,6 +1,7 @@
 package libzome
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 
@@ -134,7 +135,7 @@ func (cr *PeerRoom) Publish(pmsg PeerMessagePre) error {
 	//send message individually to each peer
 	return cr.topic.Publish(cr.ctx, msgBytes)
 }
-func (cr *PeerRoom) PublishCrypt(pmsg CipherMessagePre, encryptFns []func(input *[]byte, mHook func(input MessagePod) error) error) error {
+func (cr *PeerRoom) PublishCrypt(pmsg CipherMessagePre, encryptFns []func(totalLen int, readWrite bufio.ReadWriter) error) error {
 
 	//send message individually to each peer
 	for _, encryptBytes := range encryptFns { //TODO: multithread this

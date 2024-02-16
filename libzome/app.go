@@ -1,6 +1,7 @@
 package libzome
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"log"
@@ -40,12 +41,12 @@ func (a *App) HandleEvents(ctx context.Context) {
 	for {
 		select {
 		case input := <-a.PeerRoom.inputCh:
-			// when the user types in a line, publish it to the peer room and print to the message window
-			goodKeysList := []func(input *[]byte, mHook func(input MessagePod) error) error{}
+			// when the user inputs, publish it to the peer room and print to the message window
+			goodKeysList := []func(totalLen int, readWrite bufio.ReadWriter) error{}
 			for k, v := range a.globalConfig.knownKeypairs {
 				if v.approved {
-					goodKeysList = append(goodKeysList, func(input *[]byte, mHook func(input MessagePod) error) error {
-						return a.EcEncrypt(k, input, mHook)
+					goodKeysList = append(goodKeysList, func(totalLen int, readWrite bufio.ReadWriter) error {
+						return a.EcEncrypt(k, totalLen, readWrite)
 					})
 				}
 			}

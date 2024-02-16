@@ -1,8 +1,10 @@
 package libzome
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 
 	"go.dedis.ch/kyber/v3"
@@ -10,23 +12,13 @@ import (
 	"go.dedis.ch/kyber/v3/util/random"
 )
 
-// altered from stock to use pointers
-func ElGamalEncrypt(group kyber.Group, pubkey kyber.Point, message *[]byte, lastOffset int) (
-	K, C kyber.Point, offset int, complete bool) {
-
-	messageSize := group.Point().EmbedLen()
-	if messageSize > len(*message) {
-		messageSize = len(*message)
-		complete = true
-	}
-
-	offsetMessage := (*message)[lastOffset : lastOffset+messageSize]
+// removed wraparound, should never be longer than limit!
+func ElGamalEncrypt(group kyber.Group, pubkey kyber.Point, message []byte, lastOffset int) (
+	K, C kyber.Point) {
 
 	// Embed the message (or as much of it as will fit) into a curve point.
-	M := group.Point().Embed(offsetMessage, random.New())
+	M := group.Point().Embed(message, random.New())
 
-	complete = offset+messageSize >= len(*message)
-	offset = messageSize + lastOffset
 	// ElGamal-encrypt the point to produce ciphertext (K,C).
 	k := group.Scalar().Pick(random.New()) // ephemeral private key
 	K = group.Point().Mul(k, nil)          // ephemeral DH public key
@@ -65,15 +57,17 @@ type basicSig struct {
 	R kyber.Scalar // response
 }
 
-func hashSchnorr(suite SignSuite, message []byte, p kyber.Point) kyber.Scalar {
-	pb, _ := p.MarshalBinary()
+func hashSchnorr(suite SignSuite, message []byte, p kyber.Point) (kyber.Scalar, error) {
+	pb, err := p.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
 	c := suite.XOF(pb)
 	c.Write(message)
-	return suite.Scalar().Pick(c)
+	return suite.Scalar().Pick(c), nil
 }
 
-func SchnorrSign(suite SignSuite, message []byte,
-	privateKey kyber.Scalar) []byte {
+func SchnorrSign(suite SignSuite, message []byte, privateKey kyber.Scalar) ([]byte, error) {
 
 	randomByte := make([]byte, 32)
 	random.Bytes(randomByte, random.New())
@@ -84,7 +78,10 @@ func SchnorrSign(suite SignSuite, message []byte,
 	T := suite.Point().Mul(v, nil)
 
 	// Create challenge c based on message and T
-	c := hashSchnorr(suite, message, T)
+	c, err := hashSchnorr(suite, message, T)
+	if err != nil {
+		return nil, err
+	}
 
 	// Compute response r = v - x*c
 	r := suite.Scalar()
@@ -95,8 +92,11 @@ func SchnorrSign(suite SignSuite, message []byte,
 	// And check that hashElgamal for T and the message == c
 	buf := bytes.Buffer{}
 	sig := basicSig{c, r}
-	_ = suite.Write(&buf, &sig)
-	return buf.Bytes()
+	err = suite.Write(&buf, &sig)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func SchnorrVerify(suite SignSuite, message []byte, publicKey kyber.Point,
@@ -119,7 +119,11 @@ func SchnorrVerify(suite SignSuite, message []byte, publicKey kyber.Point,
 
 	// Verify that the hash based on the message and T
 	// matches the challange c from the signature
-	c = hashSchnorr(suite, message, T)
+	c, err := hashSchnorr(suite, message, T)
+	if err != nil {
+		return false, err
+	}
+
 	if !c.Equal(sig.C) {
 		return false, nil
 	}
@@ -133,63 +137,69 @@ type MessagePod struct {
 	index        int
 }
 
-//TODO: remake using streams
-// https://github.com/reugn/go-streams/blob/7e7870067fc1/examples/fs/main.go
-// https://github.com/reugn/go-streams/blob/7e7870067fc1/examples/ws/main.go
+//TODO: remake using buffered io (bufio)
 
-func (a *App) EcEncrypt(uuid string, input *[]byte, messageHook func(input MessagePod) error) error {
+func (a *App) EcEncrypt(toUUID string, totalLen int, readWriter bufio.ReadWriter) error {
 	suite := edwards25519.NewBlakeSHA256Ed25519()
-	messageSize := suite.Point().EmbedLen()
 	//check if we have a keypair for this uuid
-	pubKey, ok := a.globalConfig.knownKeypairs[uuid]
+	pubKey, ok := a.globalConfig.knownKeypairs[toUUID]
 	if !ok {
 		return fmt.Errorf("no keypair found for uuid")
 	}
 
 	// ElGamal-encrypt a message using the public key.
-
+	messageSize := suite.Point().EmbedLen()
 	offset := 0
 	completed := false
-
 	for !completed {
-		K, C, offsetRet, complete := ElGamalEncrypt(suite, pubKey.key, input, offset)
-		err := messageHook(MessagePod{sharedSecret: K, ciphertext: C, index: offsetRet / messageSize})
+		bytesRead := make([]byte, messageSize)
+		_, err := readWriter.Read(bytesRead)
+		K, C := ElGamalEncrypt(suite, pubKey.key, bytesRead, offset)
+		msgPod := MessagePod{sharedSecret: K, ciphertext: C, index: offset} //TODO: does all this need to be transmitted?
+		mPodBytes, err := json.Marshal(msgPod)
 		if err != nil {
 			return err
 		}
-		offset = offsetRet
-		completed = complete
+		_, err = readWriter.Write(mPodBytes)
+		if err != nil {
+			return err
+		}
+		offset += messageSize
+		completed = offset >= totalLen
 	}
 
 	return nil
-
 }
 
-func (a *App) EcDecrypt(pods []MessagePod) ([]byte, error) {
-
-	//TODO: new function needed to address one pod at a time, assemble them into a cache, use index to reassemble,
-	//rerequest broken pods
-
+func (a *App) EcDecrypt(readWriter bufio.ReadWriter) error {
 	suite := edwards25519.NewBlakeSHA256Ed25519()
 	// Decrypt it using the corresponding private key.
 	var message []byte
-	for _, pod := range pods {
+	for {
+		var pod MessagePod
+		decoder := json.NewDecoder(readWriter)
+		err := decoder.Decode(&pod)
+		if err != nil {
+			return err
+		}
 		// Decrypt the message using the private key
 		m, err := ElGamalDecrypt(suite, a.globalConfig.PrivKeyHex, pod.sharedSecret, pod.ciphertext)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		message = append(message, m...)
 	}
-	return message, nil
 }
 
-func (a *App) EcSign(toSign []byte) (string, error) {
+func (a *App) EcSign(toSign []byte) (string, error) { //TODO: switch to streamed io
 	suite := edwards25519.NewBlakeSHA256Ed25519()
 
 	// Generate the signature
 	M := []byte("Hello World!") // message we want to sign
-	sig := SchnorrSign(suite, M, a.globalConfig.PrivKeyHex)
+	sig, err := SchnorrSign(suite, M, a.globalConfig.PrivKeyHex)
+	if err != nil {
+		return "", err
+	}
 	return hex.Dump(sig), nil
 }
 
