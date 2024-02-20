@@ -6,10 +6,6 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	"go.dedis.ch/kyber/v3"
-	"go.dedis.ch/kyber/v3/group/edwards25519"
-	encoder "go.dedis.ch/kyber/v3/util/encoding"
 )
 
 //https://github.com/libp2p/go-libp2p/tree/master/examples/peer-with-mdns
@@ -50,7 +46,7 @@ func (a *App) HandleEvents(ctx context.Context) {
 					})
 				}
 			}
-			err := a.PeerRoom.PublishCrypt(input, goodKeysList)
+			err := a.PeerRoom.Publish(input)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -69,34 +65,12 @@ func (a *App) HandleEvents(ctx context.Context) {
 		case <-peerRefreshTicker.C:
 			// refresh the list of peers in the peer room periodically
 			peerRaw := a.PeerRoom.ListPeers()
-			peerStr := make([]string, len(peerRaw))
+			peerStr := make([]string, len(peerRaw)) //TODO: peer access control?
 			for i, p := range peerRaw {
 				peerStr[i] = p.String()
 			}
 			fmt.Println("peersJson", peerStr)
 
-			novelPeers := []string{}
-			for _, p := range peerStr {
-				_, ok := a.globalConfig.knownKeypairs[p]
-				if !ok {
-					novelPeers = append(novelPeers, p)
-				}
-			}
-			if len(novelPeers) == 0 {
-				continue
-			}
-			//create pubkeys from peerStr
-			suite := edwards25519.NewBlakeSHA256Ed25519()
-			newPubKeys := make(map[string]kyber.Point)
-			for _, p := range novelPeers {
-				publicKeyBytes, err := encoder.StringHexToPoint(suite, p)
-				if err == nil {
-					newPubKeys[p] = publicKeyBytes
-				}
-			}
-			for k, v := range newPubKeys {
-				a.globalConfig.knownKeypairs[k] = PeerState{key: v, approved: true} //TODO: URGENT this should be false as soon as key whitelist implemented
-			}
 			a.FsSaveConfig()
 
 			// runtime.EventsEmit(ctx, "system-peers", peerStr) //TODO: restify this

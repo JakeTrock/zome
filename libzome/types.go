@@ -3,7 +3,7 @@ package libzome
 import (
 	"context"
 
-	"go.dedis.ch/kyber/v3"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -20,7 +20,7 @@ type App struct {
 }
 
 type PeerState struct {
-	key      kyber.Point
+	key      crypto.PubKey
 	approved bool
 }
 
@@ -28,8 +28,8 @@ type ConfigObject struct {
 	uuid           string
 	poolId         string
 	userName       string
-	PubKeyHex      kyber.Point
-	PrivKeyHex     kyber.Scalar
+	PubKey         crypto.PubKey
+	PrivKey        crypto.PrivKey
 	knownKeypairs  map[string]PeerState
 	enabledPlugins []string //enabled plugins list of sha256 hashes
 }

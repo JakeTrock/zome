@@ -1,7 +1,8 @@
 package internalEndpoints
 
 import (
-	"zome/libzome"
+	"bufio"
+	"bytes"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -12,46 +13,52 @@ func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) erro
 		{
 			type encryptValue struct {
 				cipherable string
+				toUUID     string
 			}
 			subBody := encryptValue{}
 			err := c.BodyParser(&subBody)
 			if err != nil {
 				return c.Status(400).SendString("error parsing request")
 			}
-			ecResult := []libzome.MessagePod{}
 
 			cipherableBytes := []byte(subBody.cipherable)
-			err = a.zome.EcEncrypt(data.ApplicationTargetId, &cipherableBytes, func(input libzome.MessagePod) error {
-				ecResult = append(ecResult, input)
-				return nil
-			})
+			emptyBuffer := bytes.NewBuffer([]byte{})
+			emptyWriter := bufio.NewWriter(emptyBuffer)
+			messageReader := bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(cipherableBytes)), emptyWriter)
+			ecLength := len(cipherableBytes)
+			err = a.zome.EcEncrypt(subBody.toUUID, ecLength, *messageReader)
 			if err != nil {
 				return c.Status(500).SendString(err.Error())
 			}
+
 			return c.JSON(fiber.Map{
 				"applicationTargetId": data.ApplicationTargetId,
 				"requestId":           data.RequestId,
-				"result":              ecResult,
+				"result":              emptyBuffer.Bytes(),
 			})
 		}
 	case "decrypt":
 		{
 			type decryptValue struct {
-				decipherable []libzome.MessagePod
+				decipherable []byte
 			}
 			subBody := decryptValue{}
 			err := c.BodyParser(&subBody)
 			if err != nil {
 				return c.Status(400).SendString("error parsing request")
 			}
-			ecResult, err := a.zome.EcDecrypt(subBody.decipherable)
+			cipherableBytes := []byte(subBody.decipherable)
+			emptyBuffer := bytes.NewBuffer([]byte{})
+			emptyWriter := bufio.NewWriter(emptyBuffer)
+			messageReader := bufio.NewReadWriter(bufio.NewReader(bytes.NewReader(cipherableBytes)), emptyWriter)
+			err = a.zome.EcDecrypt(*messageReader)
 			if err != nil {
 				return c.Status(500).SendString(err.Error())
 			}
 			return c.JSON(fiber.Map{
 				"applicationTargetId": data.ApplicationTargetId,
 				"requestId":           data.RequestId,
-				"result":              ecResult,
+				"result":              emptyBuffer.Bytes(),
 			})
 
 		}
@@ -79,6 +86,7 @@ func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) erro
 		{
 			type checksigValue struct {
 				toCheck string
+				peerId  string
 				sig     string
 			}
 			subBody := checksigValue{}
@@ -86,7 +94,7 @@ func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) erro
 			if err != nil {
 				return c.Status(400).SendString("error parsing request")
 			}
-			ecResult, err := a.zome.EcCheckSig([]byte(subBody.toCheck), subBody.sig)
+			ecResult, err := a.zome.EcCheckSig([]byte(subBody.toCheck), subBody.peerId, subBody.sig)
 			if err != nil {
 				return c.Status(500).SendString(err.Error())
 			}
@@ -120,6 +128,7 @@ func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) erro
 		{
 			type fileCheckSigValue struct {
 				filePath string
+				peerId   string
 				sig      string
 			}
 			subBody := fileCheckSigValue{}
@@ -127,7 +136,7 @@ func (a *ZomeApi) routesEncryption(c *fiber.Ctx, data GenericRequestStruct) erro
 			if err != nil {
 				return c.Status(400).SendString("error parsing request")
 			}
-			ecResult, err := a.zome.FsCheckSigFile(data.ApplicationTargetId, subBody.filePath, subBody.sig)
+			ecResult, err := a.zome.FsCheckSigFile(data.ApplicationTargetId, subBody.filePath, subBody.sig, subBody.peerId)
 			if err != nil {
 				return c.Status(500).SendString(err.Error())
 			}

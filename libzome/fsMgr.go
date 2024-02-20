@@ -13,9 +13,6 @@ import (
 	guuid "github.com/google/uuid"
 	"golang.org/x/mod/sumdb/dirhash"
 
-	"go.dedis.ch/kyber/v3/group/edwards25519"
-	encoder "go.dedis.ch/kyber/v3/util/encoding"
-
 	"strings"
 
 	"github.com/adrg/xdg"
@@ -41,14 +38,14 @@ func createConfigFile(cfPath string) {
 	uuid := guuid.New().String()
 	poolId := guuid.New().String()
 
-	privateKey, publicKey := newKp()
+	privateKey, publicKey, err := newKp()
 
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-	pvhex, err := encoder.ScalarToStringHex(suite, privateKey)
 	if err != nil {
 		log.Fatal(err)
 	}
-	pbhex, err := encoder.PointToStringHex(suite, publicKey)
+
+	pr64, pu64, err := kpToString(privateKey, publicKey)
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,8 +54,8 @@ func createConfigFile(cfPath string) {
 		uuid,
 		poolId,
 		"Anonymous",
-		pvhex,
-		pbhex,
+		pr64,
+		pu64,
 		make(map[string]PeerStatePickled),
 		[]string{},
 	}
@@ -72,14 +69,13 @@ func createConfigFile(cfPath string) {
 
 func (a *App) FsSaveConfig() { //TODO: active save this
 	configFilePath := a.cfgPath + "/zome/config.json"
-	suite := edwards25519.NewBlakeSHA256Ed25519()
 	fmt.Println("Saving config file")
 	fmt.Println(configFilePath)
-	pvhex, err := encoder.ScalarToStringHex(suite, a.globalConfig.PrivKeyHex)
+	pv64, pb64, err := kpToString(a.globalConfig.PrivKey, a.globalConfig.PubKey)
 	if err != nil {
 		log.Fatal(err)
 	}
-	pbhex, err := encoder.PointToStringHex(suite, a.globalConfig.PubKeyHex)
+	peersPickled, err := pickleKnownKeypairs(a.globalConfig.knownKeypairs)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -87,21 +83,12 @@ func (a *App) FsSaveConfig() { //TODO: active save this
 		a.globalConfig.uuid,
 		a.globalConfig.poolId,
 		a.globalConfig.userName,
-		pvhex,
-		pbhex,
-		make(map[string]PeerStatePickled),
+		pv64,
+		pb64,
+		peersPickled,
 		a.globalConfig.enabledPlugins,
 	}
-	for k, v := range a.globalConfig.knownKeypairs {
-		khex, err := encoder.PointToStringHex(suite, v.key)
-		pickleConfig.KnownKeypairs[k] = PeerStatePickled{
-			key:      khex,
-			approved: v.approved,
-		}
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
+
 	pickleConfigBytes, _ := json.Marshal(pickleConfig)
 	err = os.WriteFile(configFilePath, pickleConfigBytes, 0644)
 	if err != nil {
@@ -158,19 +145,16 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 	err = json.Unmarshal(cfile, &cfgPickle)
 	fmt.Println(cfgPickle)
 
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-
-	publicKeyBytes, _ := encoder.StringHexToPoint(suite, cfgPickle.PubKeyHex)
-	privateKeyBytes, _ := encoder.StringHexToScalar(suite, cfgPickle.PrivKeyHex)
-	unpickledKeypairs := make(map[string]PeerState)
-
-	for k, v := range cfgPickle.KnownKeypairs {
-		spt, err := encoder.StringHexToPoint(suite, v.key)
-		if err != nil {
-			log.Fatal(err)
-		}
-		unpickledKeypairs[k] = PeerState{key: spt, approved: false}
+	privateKey, publicKey, err := stringToKp(cfgPickle.PrivKeyHex, cfgPickle.PubKeyHex)
+	if err != nil {
+		log.Fatal("Error when Unmarshalling pks: ", err)
 	}
+
+	unpickledKeypairs, err := unpickleKnownKeypairs(cfgPickle.KnownKeypairs)
+	if err != nil {
+		log.Fatal("Error when Unmarshalling kps: ", err)
+	}
+
 	uuid := cfgPickle.Uuid
 	if overrides["uuid"] != "" {
 		uuid = overrides["uuid"]
@@ -183,8 +167,8 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 		uuid,
 		poolId,
 		cfgPickle.UserName,
-		publicKeyBytes,
-		privateKeyBytes,
+		publicKey,
+		privateKey,
 		unpickledKeypairs,
 		cfgPickle.EnabledPlugins,
 	}
@@ -437,7 +421,7 @@ func (a *App) FsSignFile(appId string, file string) (string, error) {
 	return sig, nil
 }
 
-func (a *App) FsCheckSigFile(appId string, file string, sig string) (bool, error) {
+func (a *App) FsCheckSigFile(appId string, file string, sig string, peerId string) (bool, error) {
 	uuid := a.globalConfig.uuid
 	refFilePath := a.cfgPath + "/files-" + uuid + "/" + appId + "/" + file
 	if isBadPath(refFilePath) {
@@ -447,7 +431,7 @@ func (a *App) FsCheckSigFile(appId string, file string, sig string) (bool, error
 	if err != nil {
 		return false, err
 	}
-	return a.EcCheckSig(fileBytes, sig)
+	return a.EcCheckSig(fileBytes, peerId, sig)
 }
 
 //TODO: p2p file transfer/sync logic(encrypted)

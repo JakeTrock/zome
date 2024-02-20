@@ -1,8 +1,10 @@
 package libzome
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	tls "github.com/libp2p/go-libp2p/p2p/security/tls"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
@@ -27,10 +30,22 @@ func (a *App) p2pInit(appContext context.Context) {
 
 	ctx := context.Background()
 
+	identity := libp2p.Identity(a.globalConfig.PrivKey)
+
+	// tlsTransport, err := tls.New("zome=1.0", a.globalConfig.PrivKey, nil)//TODO: does this need to be enabled?
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	security := libp2p.Security(tls.ID, tls.New)
+
 	// create a new libp2p Host that listens on a random TCP port
 	h, err := libp2p.New(
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
 		libp2p.EnableNATService(),
+		libp2p.EnableHolePunching(),
+		libp2p.NATPortMap(),
+		identity,
+		security,
 	)
 
 	if err != nil {
@@ -58,7 +73,7 @@ func (a *App) p2pInit(appContext context.Context) {
 	fmt.Println("room:", room)
 
 	// join the peer room
-	cr, err := JoinPeerRoom(ctx, ps, nick, room, a.globalConfig.PubKeyHex)
+	cr, err := JoinPeerRoom(ctx, ps, nick, room, h.ID())
 	if err != nil {
 		panic(err)
 	}
@@ -67,15 +82,25 @@ func (a *App) p2pInit(appContext context.Context) {
 	a.PeerRoom = cr
 }
 
-func (a *App) P2PPushMessage(message *[]byte, requestId string, appId string) {
-	sendObject := CipherMessagePre{
-		Message:   message,
-		RequestId: requestId,
-		AppId:     appId,
+func (a *App) P2PPushMessage(message bufio.Reader, requestId string, appId string) {
+	//chunk message into 128k chunks
+	for {
+		buf := make([]byte, 128000)
+		n, err := message.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatal(err)
+		}
+		sendObject := PeerMessagePre{
+			Message:   buf[:n],
+			RequestId: requestId,
+			AppId:     appId,
+		}
+		a.PeerRoom.inputCh <- sendObject
+		fmt.Println("frontend-message", string(sendObject.RequestId), string(sendObject.AppId))
 	}
-
-	fmt.Println("frontend-message", string(sendObject.RequestId), string(sendObject.AppId))
-	a.PeerRoom.inputCh <- sendObject
 }
 
 func (a *App) P2PGetPeers() []string {

@@ -2,6 +2,7 @@ package internalEndpoints
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -60,7 +61,8 @@ func (a *ZomeApi) routesP2P(c *fiber.Ctx, data GenericRequestStruct) error {
 			return c.Status(400).SendString("error parsing request")
 		}
 		messageBytes := []byte(subBody.message)
-		a.zome.P2PPushMessage(&messageBytes, data.RequestId, data.ApplicationTargetId)
+		messageReader := bufio.NewReader(bytes.NewReader(messageBytes))
+		a.zome.P2PPushMessage(*messageReader, data.RequestId, data.ApplicationTargetId)
 
 		return c.JSON(fiber.Map{
 			"applicationTargetId": data.ApplicationTargetId,

@@ -2,216 +2,118 @@ package libzome
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 
-	"go.dedis.ch/kyber/v3"
-	"go.dedis.ch/kyber/v3/group/edwards25519"
-	"go.dedis.ch/kyber/v3/util/random"
+	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
-// removed wraparound, should never be longer than limit!
-func ElGamalEncrypt(group kyber.Group, pubkey kyber.Point, message []byte, lastOffset int) (
-	K, C kyber.Point) {
-
-	// Embed the message (or as much of it as will fit) into a curve point.
-	M := group.Point().Embed(message, random.New())
-
-	// ElGamal-encrypt the point to produce ciphertext (K,C).
-	k := group.Scalar().Pick(random.New()) // ephemeral private key
-	K = group.Point().Mul(k, nil)          // ephemeral DH public key
-	S := group.Point().Mul(k, pubkey)      // ephemeral DH shared secret
-	C = S.Add(S, M)                        // message blinded with secret
-	return
-}
-
-func ElGamalDecrypt(group kyber.Group, prikey kyber.Scalar, K, C kyber.Point) (
-	message []byte, err error) {
-
-	// ElGamal-decrypt the ciphertext (K,C) to reproduce the message.
-	S := group.Point().Mul(prikey, K) // regenerate shared secret
-	M := group.Point().Sub(C, S)      // use to un-blind the message
-	message, err = M.Data()           // extract the embedded data
-	return
-}
-
-func newKp() (kyber.Scalar, kyber.Point) {
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-	// Create a public/private keypair
-	private := suite.Scalar().Pick(random.New())
-	public := suite.Point().Mul(private, nil)
-	return private, public
-}
-
-type SignSuite interface {
-	kyber.Group
-	kyber.Encoding
-	kyber.XOFFactory
-}
-
-// A basic, verifiable signature
-type basicSig struct {
-	C kyber.Scalar // challenge
-	R kyber.Scalar // response
-}
-
-func hashSchnorr(suite SignSuite, message []byte, p kyber.Point) (kyber.Scalar, error) {
-	pb, err := p.MarshalBinary()
+func newKp() (crypto.PrivKey, crypto.PubKey, error) {
+	privkey, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 2048)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	c := suite.XOF(pb)
-	c.Write(message)
-	return suite.Scalar().Pick(c), nil
+	return privkey, privkey.GetPublic(), nil
 }
 
-func SchnorrSign(suite SignSuite, message []byte, privateKey kyber.Scalar) ([]byte, error) {
-
-	randomByte := make([]byte, 32)
-	random.Bytes(randomByte, random.New())
-
-	random := suite.XOF(randomByte)
-	// Create random secret v and public point commitment T
-	v := suite.Scalar().Pick(random)
-	T := suite.Point().Mul(v, nil)
-
-	// Create challenge c based on message and T
-	c, err := hashSchnorr(suite, message, T)
+func kpToString(privkey crypto.PrivKey, pubkey crypto.PubKey) (string, string, error) {
+	rawPriv, err := privkey.Raw()
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
-
-	// Compute response r = v - x*c
-	r := suite.Scalar()
-	r.Mul(privateKey, c).Sub(v, r)
-
-	// Return verifiable signature {c, r}
-	// Verifier will be able to compute v = r + x*c
-	// And check that hashElgamal for T and the message == c
-	buf := bytes.Buffer{}
-	sig := basicSig{c, r}
-	err = suite.Write(&buf, &sig)
+	rawPub, err := pubkey.Raw()
 	if err != nil {
-		return nil, err
+		return "", "", err
 	}
-	return buf.Bytes(), nil
+
+	return crypto.ConfigEncodeKey(rawPriv), crypto.ConfigEncodeKey(rawPub), nil
 }
 
-func SchnorrVerify(suite SignSuite, message []byte, publicKey kyber.Point,
-	signatureBuffer []byte) (bool, error) {
-
-	// Decode the signature
-	buf := bytes.NewBuffer(signatureBuffer)
-	sig := basicSig{}
-	if err := suite.Read(buf, &sig); err != nil {
-		return false, err
+func pickleKnownKeypairs(knownKeypairs map[string]PeerState) (map[string]PeerStatePickled, error) {
+	pickled := make(map[string]PeerStatePickled)
+	for k, v := range knownKeypairs {
+		rawKey, err := v.key.Raw()
+		if err != nil {
+			return nil, err
+		}
+		pickled[k] = PeerStatePickled{crypto.ConfigEncodeKey(rawKey), v.approved}
 	}
-	r := sig.R
-	c := sig.C
+	return pickled, nil
+}
 
-	// Compute base**(r + x*c) == T
-	var P, T kyber.Point
-	P = suite.Point()
-	T = suite.Point()
-	T.Add(T.Mul(r, nil), P.Mul(c, publicKey))
+func unpickleKnownKeypairs(knownKeypairs map[string]PeerStatePickled) (map[string]PeerState, error) {
+	unpickled := make(map[string]PeerState)
+	for k, v := range knownKeypairs {
+		key, err := crypto.ConfigDecodeKey(v.key)
+		if err != nil {
+			return nil, err
+		}
+		umkey, err := crypto.UnmarshalEd25519PublicKey(key)
+		unpickled[k] = PeerState{umkey, v.approved}
+	}
+	return unpickled, nil
+}
 
-	// Verify that the hash based on the message and T
-	// matches the challange c from the signature
-	c, err := hashSchnorr(suite, message, T)
+func stringToKp(privKey64 string, pubKey64 string) (crypto.PrivKey, crypto.PubKey, error) {
+	privkey, err := crypto.ConfigDecodeKey(privKey64)
 	if err != nil {
-		return false, err
+		return nil, nil, err
+	}
+	privObj, err := crypto.UnmarshalEd25519PrivateKey(privkey)
+	if err != nil {
+		return nil, nil, err
+	}
+	pubkey, err := crypto.ConfigDecodeKey(pubKey64)
+	if err != nil {
+		return nil, nil, err
+	}
+	pubObj, err := crypto.UnmarshalEd25519PublicKey(pubkey)
+	if err != nil {
+		return nil, nil, err
 	}
 
-	if !c.Equal(sig.C) {
-		return false, nil
-	}
-
-	return true, nil
+	return privObj, pubObj, err
 }
-
-type MessagePod struct {
-	sharedSecret kyber.Point
-	ciphertext   kyber.Point
-	index        int
-}
-
-//TODO: remake using buffered io (bufio)
 
 func (a *App) EcEncrypt(toUUID string, totalLen int, readWriter bufio.ReadWriter) error {
-	suite := edwards25519.NewBlakeSHA256Ed25519()
 	//check if we have a keypair for this uuid
-	pubKey, ok := a.globalConfig.knownKeypairs[toUUID]
+	peerState, ok := a.globalConfig.knownKeypairs[toUUID]
 	if !ok {
 		return fmt.Errorf("no keypair found for uuid")
 	}
-
-	// ElGamal-encrypt a message using the public key.
-	messageSize := suite.Point().EmbedLen()
-	offset := 0
-	completed := false
-	for !completed {
-		bytesRead := make([]byte, messageSize)
-		_, err := readWriter.Read(bytesRead)
-		K, C := ElGamalEncrypt(suite, pubKey.key, bytesRead, offset)
-		msgPod := MessagePod{sharedSecret: K, ciphertext: C, index: offset} //TODO: does all this need to be transmitted?
-		mPodBytes, err := json.Marshal(msgPod)
-		if err != nil {
-			return err
-		}
-		_, err = readWriter.Write(mPodBytes)
-		if err != nil {
-			return err
-		}
-		offset += messageSize
-		completed = offset >= totalLen
+	if !peerState.approved {
+		return fmt.Errorf("keypair not approved")
 	}
+	// Encrypt the message using the public key
+	//TODO: not yet implemented
+	return fmt.Errorf("not yet implemented")
 
-	return nil
 }
 
 func (a *App) EcDecrypt(readWriter bufio.ReadWriter) error {
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-	// Decrypt it using the corresponding private key.
-	var message []byte
-	for {
-		var pod MessagePod
-		decoder := json.NewDecoder(readWriter)
-		err := decoder.Decode(&pod)
-		if err != nil {
-			return err
-		}
-		// Decrypt the message using the private key
-		m, err := ElGamalDecrypt(suite, a.globalConfig.PrivKeyHex, pod.sharedSecret, pod.ciphertext)
-		if err != nil {
-			return err
-		}
-		message = append(message, m...)
-	}
+	//TODO: not yet implemented
+	return fmt.Errorf("not yet implemented")
 }
 
 func (a *App) EcSign(toSign []byte) (string, error) { //TODO: switch to streamed io
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-
-	// Generate the signature
-	M := []byte("Hello World!") // message we want to sign
-	sig, err := SchnorrSign(suite, M, a.globalConfig.PrivKeyHex)
+	sig, err := a.globalConfig.PrivKey.Sign(toSign)
 	if err != nil {
 		return "", err
 	}
-	return hex.Dump(sig), nil
+	return hex.EncodeToString(sig), nil
 }
 
-func (a *App) EcCheckSig(toCheck []byte, sig string) (bool, error) {
-	suite := edwards25519.NewBlakeSHA256Ed25519()
-	sigHex, err := hex.DecodeString(sig)
+func (a *App) EcCheckSig(toCheck []byte, peerId string, sig string) (bool, error) {
+	peerState, ok := a.globalConfig.knownKeypairs[peerId]
+	if !ok {
+		return false, fmt.Errorf("no keypair found for uuid")
+	}
+	if !peerState.approved {
+		return false, fmt.Errorf("keypair not approved")
+	}
+	sigBytes, err := hex.DecodeString(sig)
 	if err != nil {
 		return false, err
 	}
-	isMatch, err := SchnorrVerify(suite, toCheck, a.globalConfig.PubKeyHex, sigHex)
-	if err != nil {
-		return false, err
-	}
-	return isMatch, nil
+	return peerState.key.Verify(toCheck, sigBytes)
 }
