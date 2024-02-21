@@ -71,7 +71,7 @@ func (a *App) HandleEvents(ctx context.Context) {
 			}
 			fmt.Println("peersJson", peerStr)
 
-			a.FsSaveConfig()
+			// a.FsSaveConfig() //TODO: make this save when it changes
 
 			// runtime.EventsEmit(ctx, "system-peers", peerStr) //TODO: restify this
 

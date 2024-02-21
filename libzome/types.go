@@ -43,8 +43,8 @@ type ConfigPickled struct {
 	Uuid           string
 	PoolId         string
 	UserName       string
-	PubKeyHex      string
-	PrivKeyHex     string
+	PubKey64       string
+	PrivKey64      string
 	KnownKeypairs  map[string]PeerStatePickled
 	EnabledPlugins []string
 }

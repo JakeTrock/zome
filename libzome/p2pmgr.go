@@ -14,6 +14,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	tls "github.com/libp2p/go-libp2p/p2p/security/tls"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 )
 
 // DiscoveryInterval is how often we re-publish our mDNS records.
@@ -37,6 +38,7 @@ func (a *App) p2pInit(appContext context.Context) {
 	// 	log.Fatal(err)
 	// }
 	security := libp2p.Security(tls.ID, tls.New)
+	transport := libp2p.Transport(tcp.NewTCPTransport)
 
 	// create a new libp2p Host that listens on a random TCP port
 	h, err := libp2p.New(
@@ -44,6 +46,7 @@ func (a *App) p2pInit(appContext context.Context) {
 		libp2p.EnableNATService(),
 		libp2p.EnableHolePunching(),
 		libp2p.NATPortMap(),
+		transport,
 		identity,
 		security,
 	)

@@ -8,8 +8,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/crypto"
 )
 
+const keyType = crypto.Ed25519
+
 func newKp() (crypto.PrivKey, crypto.PubKey, error) {
-	privkey, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 2048)
+	privkey, _, err := crypto.GenerateKeyPair(keyType, 2048)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -17,16 +19,37 @@ func newKp() (crypto.PrivKey, crypto.PubKey, error) {
 }
 
 func kpToString(privkey crypto.PrivKey, pubkey crypto.PubKey) (string, string, error) {
-	rawPriv, err := privkey.Raw()
+	rawPriv, err := crypto.MarshalPrivateKey(privkey)
 	if err != nil {
 		return "", "", err
 	}
-	rawPub, err := pubkey.Raw()
+	rawPub, err := crypto.MarshalPublicKey(pubkey)
 	if err != nil {
 		return "", "", err
 	}
 
 	return crypto.ConfigEncodeKey(rawPriv), crypto.ConfigEncodeKey(rawPub), nil
+}
+
+func stringToKp(privKey64 string, pubKey64 string) (crypto.PrivKey, crypto.PubKey, error) {
+	privkey, err := crypto.ConfigDecodeKey(privKey64)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pvdc: " + err.Error())
+	}
+	privObj, err := crypto.UnmarshalPrivateKey(privkey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pvkum: " + err.Error())
+	}
+	pubkey, err := crypto.ConfigDecodeKey(pubKey64)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pbdc: " + err.Error())
+	}
+	pubObj, err := crypto.UnmarshalPublicKey(pubkey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pbkum: " + err.Error())
+	}
+
+	return privObj, pubObj, err
 }
 
 func pickleKnownKeypairs(knownKeypairs map[string]PeerState) (map[string]PeerStatePickled, error) {
@@ -49,30 +72,12 @@ func unpickleKnownKeypairs(knownKeypairs map[string]PeerStatePickled) (map[strin
 			return nil, err
 		}
 		umkey, err := crypto.UnmarshalEd25519PublicKey(key)
+		if err != nil {
+			return nil, err
+		}
 		unpickled[k] = PeerState{umkey, v.approved}
 	}
 	return unpickled, nil
-}
-
-func stringToKp(privKey64 string, pubKey64 string) (crypto.PrivKey, crypto.PubKey, error) {
-	privkey, err := crypto.ConfigDecodeKey(privKey64)
-	if err != nil {
-		return nil, nil, err
-	}
-	privObj, err := crypto.UnmarshalEd25519PrivateKey(privkey)
-	if err != nil {
-		return nil, nil, err
-	}
-	pubkey, err := crypto.ConfigDecodeKey(pubKey64)
-	if err != nil {
-		return nil, nil, err
-	}
-	pubObj, err := crypto.UnmarshalEd25519PublicKey(pubkey)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return privObj, pubObj, err
 }
 
 func (a *App) EcEncrypt(toUUID string, totalLen int, readWriter bufio.ReadWriter) error {

@@ -54,8 +54,8 @@ func createConfigFile(cfPath string) {
 		uuid,
 		poolId,
 		"Anonymous",
-		pr64,
 		pu64,
+		pr64,
 		make(map[string]PeerStatePickled),
 		[]string{},
 	}
@@ -68,7 +68,7 @@ func createConfigFile(cfPath string) {
 }
 
 func (a *App) FsSaveConfig() { //TODO: active save this
-	configFilePath := a.cfgPath + "/zome/config.json"
+	configFilePath := a.cfgPath + "/config.json"
 	fmt.Println("Saving config file")
 	fmt.Println(configFilePath)
 	pv64, pb64, err := kpToString(a.globalConfig.PrivKey, a.globalConfig.PubKey)
@@ -83,8 +83,8 @@ func (a *App) FsSaveConfig() { //TODO: active save this
 		a.globalConfig.uuid,
 		a.globalConfig.poolId,
 		a.globalConfig.userName,
-		pv64,
 		pb64,
+		pv64,
 		peersPickled,
 		a.globalConfig.enabledPlugins,
 	}
@@ -135,7 +135,7 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 		}
 	} // make path override better
 
-	fmt.Println("Loading existing config file")
+	fmt.Println("Loading existing config file: " + configFilePath)
 	//load config
 	cfile, err := os.ReadFile(configFilePath)
 	if err != nil {
@@ -143,9 +143,12 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 	}
 	var cfgPickle ConfigPickled
 	err = json.Unmarshal(cfile, &cfgPickle)
+	if err != nil {
+		log.Fatal("Error during Unmarshal(): ", err)
+	}
 	fmt.Println(cfgPickle)
 
-	privateKey, publicKey, err := stringToKp(cfgPickle.PrivKeyHex, cfgPickle.PubKeyHex)
+	privateKey, publicKey, err := stringToKp(cfgPickle.PrivKey64, cfgPickle.PubKey64)
 	if err != nil {
 		log.Fatal("Error when Unmarshalling pks: ", err)
 	}
