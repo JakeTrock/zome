@@ -61,7 +61,7 @@ func createConfigFile(cfPath string) {
 	}
 	fmt.Println(pickleConfig)
 	pickleConfigBytes, _ := json.Marshal(pickleConfig)
-	err = os.WriteFile(cfPath, pickleConfigBytes, 0644)
+	err = os.WriteFile(cfPath, pickleConfigBytes, 0755)
 	if err != nil {
 		log.Fatal("Error when writing file: ", err)
 	}
@@ -90,7 +90,7 @@ func (a *App) FsSaveConfig() { //TODO: active save this
 	}
 
 	pickleConfigBytes, _ := json.Marshal(pickleConfig)
-	err = os.WriteFile(configFilePath, pickleConfigBytes, 0644)
+	err = os.WriteFile(configFilePath, pickleConfigBytes, 0755)
 	if err != nil {
 		log.Fatal("Error when writing file: ", err)
 	}
@@ -101,26 +101,25 @@ func (a *App) FsLoadConfig(overrides map[string]string) { //https://github.com/a
 	var err error = nil
 
 	if overrides["configPath"] != "" {
-		fmt.Println("Using config path override")
+		fmt.Println("Fs using config path override")
 		configFilePath = overrides["configPath"] + "/zome/config.json"
 		//check if dir exists
-		if overrides["configPath"] != "" {
-			statpath, err := os.Stat(overrides["configPath"] + "/zome")
-			if os.IsNotExist(err) {
-				err = os.MkdirAll(overrides["configPath"]+"/zome", 0755)
-				if err != nil {
-					log.Fatal(err)
-				}
-				newPath, err := os.Create(configFilePath)
-				if err != nil {
-					log.Fatal(err)
-				}
-				createConfigFile(newPath.Name())
+		statpath, err := os.Stat(configFilePath)
+		println(statpath)
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(overrides["configPath"]+"/zome", 0755)
+			if err != nil {
+				log.Fatal(err)
 			}
-			a.cfgPath = statpath.Name()
-		} else {
-			log.Fatal("Bad custom path")
+			println("Creating new config file")
+			newPath, err := os.Create(configFilePath)
+			if err != nil {
+				log.Fatal(err)
+			}
+			println("cfpath: " + newPath.Name())
+			createConfigFile(newPath.Name())
 		}
+		a.cfgPath = statpath.Name()
 	} else {
 		fmt.Println("Using default config path")
 		configFilePath, err = xdg.SearchConfigFile("zome/config.json")
@@ -264,7 +263,7 @@ func (a *App) FsCreateFolder(appId string, folder string) (bool, error) {
 	if isBadPath(refFilePath) {
 		return false, fmt.Errorf("bad path(cannot contain .. or ~)")
 	}
-	err := os.MkdirAll(refFilePath, 0644)
+	err := os.MkdirAll(refFilePath, 0755)
 	if err != nil {
 		fmt.Println(err)
 		return false, err

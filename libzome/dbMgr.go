@@ -18,15 +18,30 @@ func (a *App) DbInit(overrides map[string]string) {
 	var err error = nil
 
 	if overrides["configPath"] != "" {
-		fmt.Println("Using config path override")
+		fmt.Println("Db using config path override")
 		configFilePath = overrides["configPath"] + dbPath
+		statpath, err := os.Stat(overrides["configPath"])
+		print(statpath)
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(overrides["configPath"]+"/zome", 0755)
+			if err != nil {
+				log.Fatal(err)
+			}
+			print("Creating new db file")
+			newPath, err := os.Create(configFilePath)
+			if err != nil {
+				log.Fatal(err)
+			}
+			print("cfpath: " + newPath.Name())
+			createConfigFile(newPath.Name())
+		}
 	} else {
 		fmt.Println("Using default config path")
 		configFilePath, err = xdg.SearchConfigFile(dbPath)
 	}
 
 	if configFilePath == "" || err != nil { //https://github.com/adrg/xdg
-		fmt.Println("Creating new config file")
+		fmt.Println("Creating new db file")
 		if err != nil {
 			fmt.Println(err)
 		}

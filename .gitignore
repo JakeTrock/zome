@@ -7,3 +7,4 @@ frontend/.DS_Store
 TODO.md
 zomeHeadless
 headlessBin/**
+*cfg/**

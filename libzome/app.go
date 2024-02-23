@@ -21,9 +21,11 @@ func (a *App) Startup(ctx context.Context) {
 	// Perform your setup here
 	a.ctx = ctx
 	a.Abilities = []string{"database", "p2p", "encryption", "fs"} //TODO: in the future, all of these should be pluggable
-	//TODO: selectively start up the abilities based on the config
-	a.DbInit(a.Overrides)
+
 	a.FsLoadConfig(a.Overrides)
+
+	a.DbInit(a.Overrides)
+
 	a.p2pInit(ctx)
 
 	a.HandleEvents(ctx)
