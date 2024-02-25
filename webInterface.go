@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/gorilla/websocket"
 	ds "github.com/ipfs/go-datastore"
@@ -36,6 +37,13 @@ func (a *App) websocketHandler(w http.ResponseWriter, r *http.Request) {
 			logger.Error(err)
 			return
 		}
+		origin := r.Header.Get("Origin")
+		baseurl, err := url.Parse(origin)
+		if err != nil {
+			logger.Error(err)
+			return
+		}
+		host := baseurl.Hostname()
 
 		// Decode the message
 		var request struct {
@@ -54,11 +62,11 @@ func (a *App) websocketHandler(w http.ResponseWriter, r *http.Request) {
 		// Process the request based on the action
 		switch request.Action {
 		case "add":
-			a.handleAddRequest(conn, request.Data.Values)
+			a.handleAddRequest(conn, request.Data.Values, host)
 		case "get":
-			a.handleGetRequest(conn, request.Data.Keys)
+			a.handleGetRequest(conn, request.Data.Keys, host)
 		case "delete":
-			a.handleDeleteRequest(conn, request.Data.Keys)
+			a.handleDeleteRequest(conn, request.Data.Keys, host)
 		default:
 			logger.Error("Invalid action")
 			return
@@ -66,7 +74,7 @@ func (a *App) websocketHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *App) handleAddRequest(conn *websocket.Conn, keys map[string]string) {
+func (a *App) handleAddRequest(conn *websocket.Conn, keys map[string]string, originKey string) {
 	type successReturn struct {
 		DidSucceed map[string]bool `json:"didSucceed"`
 	}
@@ -77,7 +85,7 @@ func (a *App) handleAddRequest(conn *websocket.Conn, keys map[string]string) {
 
 	for k, v := range keys {
 		// Add the key-value pair to the store
-		err := a.store.Put(a.ctx, ds.NewKey(k), []byte(v))
+		err := a.store.Put(a.ctx, ds.NewKey(originKey+"-"+k), []byte(v))
 		if err != nil {
 			success.DidSucceed[k] = false
 			logger.Error(err)
@@ -101,7 +109,7 @@ func (a *App) handleAddRequest(conn *websocket.Conn, keys map[string]string) {
 	}
 }
 
-func (a *App) handleGetRequest(conn *websocket.Conn, keys []string) {
+func (a *App) handleGetRequest(conn *websocket.Conn, keys []string, originKey string) {
 	type returnMessage struct {
 		Keys map[string]string `json:"keys"`
 	}
@@ -112,7 +120,7 @@ func (a *App) handleGetRequest(conn *websocket.Conn, keys []string) {
 
 	for _, k := range keys {
 		// Retrieve the value from the store
-		value, err := a.store.Get(a.ctx, ds.NewKey(k))
+		value, err := a.store.Get(a.ctx, ds.NewKey(originKey+"-"+k))
 		if err != nil {
 			logger.Error(err)
 		} else {
@@ -135,7 +143,7 @@ func (a *App) handleGetRequest(conn *websocket.Conn, keys []string) {
 	}
 }
 
-func (a *App) handleDeleteRequest(conn *websocket.Conn, keys []string) {
+func (a *App) handleDeleteRequest(conn *websocket.Conn, keys []string, originKey string) {
 	type successReturn struct {
 		DidSucceed map[string]bool `json:"didSucceed"`
 	}
@@ -146,7 +154,7 @@ func (a *App) handleDeleteRequest(conn *websocket.Conn, keys []string) {
 
 	for _, k := range keys {
 		// Delete the key from the store
-		err := a.store.Delete(a.ctx, ds.NewKey(k))
+		err := a.store.Delete(a.ctx, ds.NewKey(originKey+"-"+k))
 		if err != nil {
 			success.DidSucceed[k] = false
 			logger.Error(err)
