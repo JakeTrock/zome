@@ -1,12 +1,121 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS + Tailwind</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<html>
+
+<head>
+    <title>Zome test panel</title>
+</head>
+
+<body>
+    <h1>Zome testpanel</h1>
+
+    <div style="display: flex; flex-direction: row;">
+        <div style="border: 1px dotted; padding: 10px; flex: 1;">
+            <h2>Output</h2>
+            <h2>Add Operation</h2>
+            <form id="addForm" onsubmit="event.preventDefault(); sendAddRequest(); clearForm('getForm');">
+                <label for="addKeys">Keys:</label>
+                <input type="text" id="addKeys" name="addKeys" placeholder="Enter keys separated by comma" required><br>
+
+                <label for="addValues">Values:</label>
+                <input type="text" id="addValues" name="addValues" placeholder="Enter values separated by comma"
+                    required><br>
+
+                <button type="submit">Add</button>
+            </form>
+
+            <h2>Get Operation</h2>
+            <form id="getForm" onsubmit="event.preventDefault(); sendGetRequest(); clearForm('getForm');">
+                <label for="getKeys">Keys:</label>
+                <input type="text" id="getKeys" name="getKeys" placeholder="Enter keys separated by comma" required><br>
+
+                <button type="submit">Get</button>
+            </form>
+
+            <h2>Delete Operation</h2>
+            <form id="deleteForm" onsubmit="event.preventDefault(); sendDeleteRequest(); clearForm('deleteForm');">
+                <label for="deleteKeys">Keys:</label>
+                <input type="text" id="deleteKeys" name="deleteKeys" placeholder="Enter keys separated by comma"
+                    required><br>
+
+                <button type="submit">Delete</button>
+            </form>
+        </div>
+        <div style="border: 1px dotted; padding: 10px; flex: 1;">
+            <h2>Output</h2>
+            <div id="output" style="overflow:scroll"></div>
+        </div>
+    </div>
+</body>
+<script>
+    var socket = new WebSocket("ws://localhost:5253/");
+    var output = document.getElementById("output");
+
+    socket.onopen = function (event) {
+        var message = document.createElement("p");
+        message.innerHTML = "WebSocket connection established.";
+        output.appendChild(message);
+    };
+
+    socket.onmessage = function (event) {
+        var response = JSON.parse(event.data);
+        var message = document.createElement("p");
+        message.innerHTML = JSON.stringify(response, null, 2);
+        output.appendChild(message);
+    };
+
+    socket.onclose = function (event) {
+        var message = document.createElement("p");
+        message.innerHTML = "WebSocket connection closed.";
+        output.appendChild(message);
+    };
+
+    function sendAddRequest() {
+        var keys = document.getElementById("addKeys").value.split(",");
+        var values = document.getElementById("addValues").value.split(",");
+
+        var request = {
+            action: "add",
+            data: {
+                keys: keys,
+                values: {}
+            }
+        };
+
+        for (var i = 0; i < keys.length; i++) {
+            request.data.values[keys[i]] = values[i];
+        }
+
+        socket.send(JSON.stringify(request));
+    }
+
+    function sendGetRequest() {
+        var keys = document.getElementById("getKeys").value.split(",");
+
+        var request = {
+            action: "get",
+            data: {
+                keys: keys
+            }
+        };
+
+        socket.send(JSON.stringify(request));
+    }
+
+    function sendDeleteRequest() {
+        var keys = document.getElementById("deleteKeys").value.split(",");
+
+        var request = {
+            action: "delete",
+            data: {
+                keys: keys
+            }
+        };
+
+        socket.send(JSON.stringify(request));
+    }
+    function clearForm(formId) {
+        document.getElementById(formId).reset();
+    }
+</script>
+
 </html>

@@ -1,25 +1,159 @@
 package main
 
 import (
-	"embed"
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
 
-	libzome "zome/libzome"
+	"github.com/lucsky/cuid"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
+	ds "github.com/ipfs/go-datastore"
+	badger "github.com/ipfs/go-ds-badger"
+	logging "github.com/ipfs/go-log/v2"
+
+	"github.com/adrg/xdg"
+	crypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-//go:embed all:frontend/dist
-var assets embed.FS
+const name = "zome"
 
-//go:embed build/appicon.png
-var icon []byte
+var logger = logging.Logger("globaldb")
+
+type App struct {
+	ctx           context.Context
+	operatingPath string
+
+	store     *badger.Datastore
+	host      host.Host
+	subTopics map[string][]string
+
+	peerId     peer.ID
+	privateKey crypto.PrivKey
+}
+
+func initPath(overridePath string) string {
+	var configFilePath string
+	if overridePath != "" {
+		fmt.Println("Using config path override")
+		configFilePath = overridePath
+		statpath, err := os.Stat(overridePath)
+		print(statpath)
+		if os.IsNotExist(err) {
+			err = os.MkdirAll(filepath.Join(overridePath, name), 0755)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+		if err != nil {
+			logger.Fatal(err)
+		}
+	} else {
+		fmt.Println("Using default config path")
+		configFilePath = filepath.Join(xdg.ConfigHome, name)
+	}
+	return configFilePath
+}
+
+func retrievePrivateKey(store *badger.Datastore, ctx context.Context) crypto.PrivKey {
+	var priv crypto.PrivKey
+	k := ds.NewKey("userKey")
+	v, err := store.Get(ctx, k)
+	if err != nil && err != ds.ErrNotFound {
+		logger.Fatal(err)
+	} else if v != nil {
+		println("priv exists")
+		priv, err = crypto.UnmarshalPrivateKey(v)
+		if err != nil {
+			logger.Fatal(err)
+		}
+	} else {
+		println("priv doesn't exist")
+		priv, _, err = crypto.GenerateKeyPair(crypto.Ed25519, 1)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		data, err := crypto.MarshalPrivateKey(priv)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		err = store.Put(ctx, k, data)
+		if err != nil {
+			logger.Fatal(err)
+		}
+	}
+	return priv
+}
+
+func retrieveTopics(store *badger.Datastore, ctx context.Context) map[string][]string {
+	topics := map[string][]string{}
+	k := ds.NewKey("topics")
+	v, err := store.Get(ctx, k)
+	if err != nil && err != ds.ErrNotFound {
+		logger.Fatal(err)
+	} else if v != nil {
+		json.Unmarshal(v, &topics)
+		if err != nil {
+			logger.Fatal(err)
+		}
+	} else {
+		randomUUID := cuid.New()
+		topics[randomUUID] = []string{}
+		data, err := json.Marshal(topics)
+		if err != nil {
+			logger.Fatal(err)
+		}
+		err = store.Put(ctx, k, data)
+		if err != nil {
+			logger.Fatal(err)
+		}
+
+	}
+	return topics
+}
+
+func (a *App) Startup(overrides map[string]string) {
+	crypto.MinRsaKeyBits = 1024
+
+	logging.SetLogLevel("*", "error")
+	ctx := context.Background()
+
+	configFilePath := initPath(overrides["configPath"])
+
+	data := filepath.Join(configFilePath, name+"-data")
+
+	store, err := badger.NewDatastore(data, &badger.DefaultOptions)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	priv := retrievePrivateKey(store, ctx)
+
+	pid, err := peer.IDFromPublicKey(priv.GetPublic())
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	a.subTopics = retrieveTopics(store, ctx)
+
+	a.ctx = ctx
+	a.operatingPath = configFilePath
+
+	a.peerId = pid
+	a.privateKey = priv
+
+	a.store = store
+}
 
 func main() {
-	deviceIdOverride := flag.String("overrideId", "", "overrides default device id")
-	poolIdOverride := flag.String("overridePool", "", "overrides default pool id")
 	configPathOverride := flag.String("configPath", "", "overrides default config path")
 	help := flag.Bool("h", false, "Display Help")
 	flag.Parse()
@@ -30,26 +164,35 @@ func main() {
 		return
 	}
 
-	zomeBackend := libzome.NewApp(map[string]string{
-		"deviceId":   *deviceIdOverride,
-		"poolId":     *poolIdOverride,
-		"configPath": *configPathOverride,
-	})
+	app := &App{}
 
-	// Create application with options
-	err := wails.Run(&options.App{
-		Title:            "wails-events",
-		Width:            1024,
-		Height:           768,
-		Assets:           assets,
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        zomeBackend.Startup,
-		Bind: []interface{}{
-			zomeBackend,
-		},
-	})
+	app.Startup(map[string]string{"configPath": *configPathOverride})
 
-	if err != nil {
-		println("Error:", err.Error())
+	app.InitP2P()
+
+	app.initWeb()
+
+	if len(os.Args) > 1 && os.Args[1] == "daemon" {
+		fmt.Println("Running in daemon mode")
+		go func() {
+			for {
+				fmt.Printf("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeers(app.host)))
+				time.Sleep(10 * time.Second)
+			}
+		}()
+		signalChan := make(chan os.Signal, 20)
+		signal.Notify(
+			signalChan,
+			syscall.SIGINT,
+			syscall.SIGTERM,
+			syscall.SIGHUP,
+		)
+		<-signalChan
+		return
 	}
+
+	defer app.store.Close()
+	_, cancel := context.WithCancel(app.ctx)
+	defer cancel()
+
 }
