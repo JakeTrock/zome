@@ -57,6 +57,16 @@
                 <button type="submit">Delete</button>
             </form>
 
+            <h2>RemoveOrigin Operation</h2>
+            <form id="removeOriginForm">
+                <button type="submit">RemoveOrigin</button>
+            </form>
+
+            <h2>GetServerStats Operation</h2>
+            <form id="getServerStats">
+                <button type="submit">GetServerStats</button>
+            </form>
+
         </div>
         <div style="border: 1px dotted; padding: 10px; flex: 1;">
             <h2>Output</h2>
@@ -127,6 +137,9 @@
     generalizedReq(document.getElementById("setGlobalWriteForm"), "setGlobalWrite");
     generalizedReq(document.getElementById("getForm"), "get");
     generalizedReq(document.getElementById("deleteForm"), "delete");
+    generalizedReq(document.getElementById("removeOriginForm"), "removeOrigin");
+
+    generalizedReq(document.getElementById("getServerStats"), "getServerStats");
 </script>
 
 </html>

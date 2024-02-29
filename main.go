@@ -32,6 +32,7 @@ var logger = logging.Logger("globaldb")
 type App struct {
 	ctx           context.Context
 	operatingPath string
+	startTime     time.Time
 
 	dbCryptKey []byte
 	store      *badger.Datastore
@@ -173,6 +174,7 @@ func (a *App) Startup(overrides map[string]string) {
 	a.ctx = ctx
 	a.operatingPath = configFilePath
 
+	a.startTime = time.Now() //we dispose of this on shutdown
 	a.peerId = pid
 	a.privateKey = priv
 	a.dbCryptKey = retrieveDbKey(data) // file based key, can be moved to lock db

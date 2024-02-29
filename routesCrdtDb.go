@@ -7,6 +7,36 @@ import (
 	ds "github.com/ipfs/go-datastore"
 )
 
+func (a *App) removeOrigin(conn *websocket.Conn, request Request, originKey string) {
+	type successReturn struct {
+		DidSucceed bool `json:"didSucceed"`
+	}
+
+	success := successReturn{
+		DidSucceed: false,
+	}
+	err := a.store.DB.DropPrefix([]byte(originKey))
+	if err != nil {
+		logger.Error(err)
+		success.DidSucceed = false
+	} else {
+		success.DidSucceed = true
+	}
+
+	successJson, err := json.Marshal(success)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
+
+	// Send the success response to the client
+	err = conn.WriteMessage(websocket.TextMessage, successJson)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
+}
+
 func (a *App) setGlobalWrite(conn *websocket.Conn, request Request, originKey string) {
 	type successReturn struct {
 		DidSucceed bool `json:"didSucceed"`
@@ -68,7 +98,7 @@ func (a *App) getGlobalWrite(origin string) (bool, error) {
 	return false, nil
 }
 
-func (a *App) handleAddRequest(conn *websocket.Conn, request Request, originKey string) {
+func (a *App) handleAddRequest(conn *websocket.Conn, request Request, originKey string) { //TODO: switch to using badger write
 	//validate request
 	if len(request.Data.Values) == 0 {
 		logger.Error("Invalid request body")
