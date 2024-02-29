@@ -10,35 +10,53 @@
 
     <div style="display: flex; flex-direction: row;">
         <div style="border: 1px dotted; padding: 10px; flex: 1;">
-            <h2>Output</h2>
+            <h2>Input</h2>
             <h2>Add Operation</h2>
-            <form id="addForm" onsubmit="event.preventDefault(); sendAddRequest(); clearForm('addForm');">
-                <label for="addKeys">Keys:</label>
-                <input type="text" id="addKeys" name="addKeys" placeholder="Enter keys separated by comma" required><br>
+            <form id="addForm">
+                <label for="forceDomain">Force Domain:</label>
+                <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
 
-                <label for="addValues">Values:</label>
-                <input type="text" id="addValues" name="addValues" placeholder="Enter values separated by comma"
-                    required><br>
+                <label for="acl">ACL:</label>
+                <input type="text" id="acl" name="acl" placeholder="Enter acl"><br>
+
+                <label for="keys">Keys:</label>
+                <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
+
+                <label for="values">Values:</label>
+                <input type="text" id="values" name="values" placeholder="Enter values separated by comma" required><br>
 
                 <button type="submit">Add</button>
             </form>
 
+            <h2>Set Global Write</h2>
+            <form id="setGlobalWriteForm">
+                <label for="value">ACL:</label>
+                <input type="text" id="value" name="value" placeholder="Enter true/false" required><br>
+
+                <button type="submit">Set Global Write</button>
+            </form>
+
             <h2>Get Operation</h2>
-            <form id="getForm" onsubmit="event.preventDefault(); sendGetRequest(); clearForm('getForm');">
-                <label for="getKeys">Keys:</label>
-                <input type="text" id="getKeys" name="getKeys" placeholder="Enter keys separated by comma" required><br>
+            <form id="getForm">
+                <label for="forceDomain">Force Domain:</label>
+                <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+                <label for="keys">Keys:</label>
+                <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
 
                 <button type="submit">Get</button>
             </form>
 
             <h2>Delete Operation</h2>
-            <form id="deleteForm" onsubmit="event.preventDefault(); sendDeleteRequest(); clearForm('deleteForm');">
-                <label for="deleteKeys">Keys:</label>
-                <input type="text" id="deleteKeys" name="deleteKeys" placeholder="Enter keys separated by comma"
-                    required><br>
+            <form id="deleteForm">
+                <label for="forceDomain">Force Domain:</label>
+                <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+
+                <label for="keys">Keys:</label>
+                <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
 
                 <button type="submit">Delete</button>
             </form>
+
         </div>
         <div style="border: 1px dotted; padding: 10px; flex: 1;">
             <h2>Output</h2>
@@ -59,6 +77,7 @@
     socket.onmessage = function (event) {
         var response = JSON.parse(event.data);
         var message = document.createElement("p");
+        console.log(response)
         message.innerHTML = JSON.stringify(response, null, 2);
         output.appendChild(message);
     };
@@ -69,53 +88,45 @@
         output.appendChild(message);
     };
 
-    function sendAddRequest() {
-        var keys = document.getElementById("addKeys").value.split(",");
-        var values = document.getElementById("addValues").value.split(",");
+    function generalizedReq(listenerElement, action) {
+        listenerElement.addEventListener("submit", function (event) {
+            event.preventDefault();
+            const formData = new FormData(listenerElement);
+            const codeData = Object.fromEntries(formData.entries());
 
-        var request = {
-            action: "add",
-            data: {
-                keys: keys,
-                values: {}
+            var request = {
+                action,
+                data: {}
+            };
+
+            if (formData.get("forceDomain") != null && formData.get("forceDomain").trim() != "") {
+                request.forceDomain = formData.get("forceDomain");
             }
-        };
-
-        for (var i = 0; i < keys.length; i++) {
-            request.data.values[keys[i]] = values[i];
-        }
-
-        socket.send(JSON.stringify(request));
-    }
-
-    function sendGetRequest() {
-        var keys = document.getElementById("getKeys").value.split(",");
-
-        var request = {
-            action: "get",
-            data: {
-                keys: keys
+            if (formData.get("acl") != null) {
+                request.data.acl = formData.get("acl");
             }
-        };
-
-        socket.send(JSON.stringify(request));
-    }
-
-    function sendDeleteRequest() {
-        var keys = document.getElementById("deleteKeys").value.split(",");
-
-        var request = {
-            action: "delete",
-            data: {
-                keys: keys
+            if (formData.get("value") != null) {
+                request.data.value = formData.get("value");
             }
-        };
+            if (formData.get("values") != null && formData.get("keys") != null) {
+                const values = formData.get("values").split(",");
+                request.data.values = Object.fromEntries(formData.get("keys").split(",").map((key, i) => [key, values[i]]));
+            } else if (formData.get("keys") != null) {
+                request.data.keys = formData.get("keys").split(",");
+            }
 
-        socket.send(JSON.stringify(request));
+            const requestString = JSON.stringify(request);
+            console.log(requestString);
+
+            socket.send(requestString);
+            listenerElement.reset();
+        });
     }
-    function clearForm(formId) {
-        document.getElementById(formId).reset();
-    }
+
+    generalizedReq(document.getElementById("addForm"), "add");
+    generalizedReq(document.getElementById("setGlobalWriteForm"), "setGlobalWrite");
+    generalizedReq(document.getElementById("getForm"), "get");
+    generalizedReq(document.getElementById("deleteForm"), "delete");
 </script>
 
 </html>

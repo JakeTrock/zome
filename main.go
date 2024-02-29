@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"os/signal"
@@ -32,9 +33,10 @@ type App struct {
 	ctx           context.Context
 	operatingPath string
 
-	store     *badger.Datastore
-	host      host.Host
-	subTopics map[string][]string
+	dbCryptKey []byte
+	store      *badger.Datastore
+	host       host.Host
+	subTopics  map[string][]string
 
 	peerId     peer.ID
 	privateKey crypto.PrivKey
@@ -120,6 +122,30 @@ func retrieveTopics(store *badger.Datastore, ctx context.Context) map[string][]s
 	return topics
 }
 
+func retrieveDbKey(refPath string) []byte {
+	keyPath := filepath.Join(refPath, "key")
+	var priv []byte
+	_, err := os.Stat(keyPath)
+	if os.IsNotExist(err) {
+		priv, err = NewAESKey()
+		if err != nil {
+			logger.Fatal(err)
+		}
+		err = os.WriteFile(keyPath, priv, fs.FileMode(0400))
+		if err != nil {
+			logger.Fatal(err)
+		}
+	} else if err != nil {
+		logger.Fatal(err)
+	} else {
+		priv, err = os.ReadFile(keyPath)
+		if err != nil {
+			logger.Fatal(err)
+		}
+	}
+	return priv
+}
+
 func (a *App) Startup(overrides map[string]string) {
 	crypto.MinRsaKeyBits = 1024
 
@@ -149,6 +175,7 @@ func (a *App) Startup(overrides map[string]string) {
 
 	a.peerId = pid
 	a.privateKey = priv
+	a.dbCryptKey = retrieveDbKey(data) // file based key, can be moved to lock db
 
 	a.store = store
 }
