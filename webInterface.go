@@ -54,6 +54,9 @@ func (a *App) websocketHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		host := baseurl.Hostname()
+		if baseurl.Port() != "" {
+			host = host + ":" + baseurl.Port()
+		}
 
 		// Decode the message
 		var request Request
