@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -38,6 +39,8 @@ type App struct {
 	store      *badger.Datastore
 	host       host.Host
 	subTopics  map[string][]string
+
+	fsMutex sync.Mutex
 
 	peerId     peer.ID
 	privateKey crypto.PrivKey
@@ -180,6 +183,10 @@ func (a *App) Startup(overrides map[string]string) {
 	a.dbCryptKey = retrieveDbKey(data) // file based key, can be moved to lock db
 
 	a.store = store
+}
+
+func (a *App) Shutdown() {
+	a.store.Close()
 }
 
 func main() {

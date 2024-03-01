@@ -11,6 +11,9 @@ dev:
 fe:
 	pnpx serve frontend
 
+test:
+	$(GO) test -v ./...
+
 hbuild:
 	$(GO) build -o zomeHeadless *.go
 

@@ -36,38 +36,81 @@
                 <button type="submit">Set Global Write</button>
             </form>
 
-            <h2>Get Operation</h2>
-            <form id="getForm">
-                <label for="forceDomain">Force Domain:</label>
-                <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
-                <label for="keys">Keys:</label>
-                <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
+            <div>
+                <h1>Database</h1>
+                <h2>Get Operation</h2>
+                <form id="getForm">
+                    <label for="forceDomain">Force Domain:</label>
+                    <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+                    <label for="keys">Keys:</label>
+                    <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
 
-                <button type="submit">Get</button>
-            </form>
+                    <button type="submit">Get</button>
+                </form>
 
-            <h2>Delete Operation</h2>
-            <form id="deleteForm">
-                <label for="forceDomain">Force Domain:</label>
-                <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+                <h2>Delete Operation</h2>
+                <form id="deleteForm">
+                    <label for="forceDomain">Force Domain:</label>
+                    <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
 
-                <label for="keys">Keys:</label>
-                <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
+                    <label for="keys">Keys:</label>
+                    <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
 
-                <button type="submit">Delete</button>
-            </form>
+                    <button type="submit">Delete</button>
+                </form>
 
-            <h2>RemoveOrigin Operation</h2>
-            <form id="removeOriginForm">
-                <button type="submit">RemoveOrigin</button>
-            </form>
+                <h2>RemoveOrigin Operation</h2>
+                <form id="removeOriginForm">
+                    <button type="submit">RemoveOrigin</button>
+                </form>
 
-            <h2>GetServerStats Operation</h2>
-            <form id="getServerStats">
-                <button type="submit">GetServerStats</button>
-            </form>
+                <h2>GetServerStats Operation</h2>
+                <form id="getServerStats">
+                    <button type="submit">GetServerStats</button>
+                </form>
+            </div>
+            <div>
+                <h1>FS</h1>
+                <h2>Get Operation</h2>
+                <form id="getForm">
+                    <label for="forceDomain">Force Domain:</label>
+                    <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+                    <label for="keys">Keys:</label>
+                    <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
+
+                    <button type="submit">Get</button>
+                </form>
+
+                <h2>Delete Operation</h2>
+                <form id="deleteForm">
+                    <label for="forceDomain">Force Domain:</label>
+                    <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+
+                    <label for="keys">Keys:</label>
+                    <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
+
+                    <button type="submit">Delete</button>
+                </form>
+
+                <h2>Put Operation</h2>
+                <form id="putForm">
+                    <label for="forceDomain">Force Domain:</label>
+                    <input type="text" id="forceDomain" name="forceDomain" placeholder="Enter force domain"><br>
+
+                    <label for="keys">Keys:</label>
+                    <input type="text" id="keys" name="keys" placeholder="Enter keys separated by comma" required><br>
+
+                    <label for="values">Values:</label>
+                    <input type="text" id="values" name="values" placeholder="Enter values separated by comma"
+                        required><br>
+
+                    <button type="submit">Put</button>
+                </form>
+
+            </div>
 
         </div>
+
         <div style="border: 1px dotted; padding: 10px; flex: 1;">
             <h2>Output</h2>
             <div id="output" style="overflow:scroll"></div>
@@ -140,6 +183,10 @@
     generalizedReq(document.getElementById("removeOriginForm"), "removeOrigin");
 
     generalizedReq(document.getElementById("getServerStats"), "getServerStats");
+
+    generalizedReq(document.getElementById("putForm"), "put");
+    generalizedReq(document.getElementById("getForm"), "get");
+    generalizedReq(document.getElementById("deleteForm"), "delete");
 </script>
 
 </html>

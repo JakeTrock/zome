@@ -4,8 +4,11 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strconv"
 )
@@ -105,4 +108,19 @@ func checkACL(acl, operation string, domainSource, domainTarget string) bool {
 		}
 		return operationNum >= int(acl[aclPos])
 	}
+}
+
+func sha256File(writePath string) (string, error) {
+	file, err := os.Open(writePath)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }

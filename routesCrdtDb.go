@@ -2,12 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/gorilla/websocket"
 	ds "github.com/ipfs/go-datastore"
 )
 
-func (a *App) removeOrigin(conn *websocket.Conn, request Request, originKey string) {
+func (a *App) removeOrigin(_ *websocket.Conn, _ Request, originKey string) ([]byte, error) {
 	type successReturn struct {
 		DidSucceed bool `json:"didSucceed"`
 	}
@@ -26,18 +27,27 @@ func (a *App) removeOrigin(conn *websocket.Conn, request Request, originKey stri
 	successJson, err := json.Marshal(success)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
-	// Send the success response to the client
-	err = conn.WriteMessage(websocket.TextMessage, successJson)
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+	return successJson, nil
 }
 
-func (a *App) setGlobalWrite(conn *websocket.Conn, request Request, originKey string) {
+func (a *App) setGlobalWrite(_ *websocket.Conn, request Request, originKey string) ([]byte, error) {
+	var requestBody struct {
+		Value string `json:"value"`
+	}
+	err := json.Unmarshal(request.Data, &requestBody)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	if requestBody.Value != "true" && requestBody.Value != "false" {
+		logger.Error("invalid request body: value must be true or false")
+		return nil, fmt.Errorf("invalid request body: value must be true or false")
+	}
+
 	type successReturn struct {
 		DidSucceed bool `json:"didSucceed"`
 	}
@@ -48,13 +58,13 @@ func (a *App) setGlobalWrite(conn *websocket.Conn, request Request, originKey st
 
 	origin := originKey + "]-GW"
 
-	enableBool := request.Data.Value == "true"
+	enableBool := requestBody.Value == "true"
 	enableByte := []byte{0}
 	if enableBool {
 		enableByte = []byte{1}
 	}
 
-	err := a.store.Put(a.ctx, ds.NewKey(origin), enableByte)
+	err = a.store.Put(a.ctx, ds.NewKey(origin), enableByte)
 	if err != nil {
 		success.DidSucceed = false
 		logger.Error(err)
@@ -66,15 +76,10 @@ func (a *App) setGlobalWrite(conn *websocket.Conn, request Request, originKey st
 	successJson, err := json.Marshal(success)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
-	// Send the success response to the client
-	err = conn.WriteMessage(websocket.TextMessage, successJson)
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+	return successJson, nil
 }
 
 func (a *App) getGlobalWrite(origin string) (bool, error) {
@@ -98,15 +103,25 @@ func (a *App) getGlobalWrite(origin string) (bool, error) {
 	return false, nil
 }
 
-func (a *App) handleAddRequest(conn *websocket.Conn, request Request, originKey string) { //TODO: switch to using badger write
-	//validate request
-	if len(request.Data.Values) == 0 {
-		logger.Error("Invalid request body")
-		return
+func (a *App) handleAddRequest(_ *websocket.Conn, request Request, originKey string) ([]byte, error) { //TODO: switch to using badger write
+	var requestBody struct {
+		ACL    string            `json:"acl"`
+		Values map[string]string `json:"values"`
+	}
+	err := json.Unmarshal(request.Data, &requestBody)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
 	}
 
-	if request.Data.ACL == "" {
-		request.Data.ACL = "11"
+	//validate request
+	if len(requestBody.Values) == 0 {
+		logger.Error("Invalid request body: no values provided")
+		return nil, fmt.Errorf("invalid request body: no values provided")
+	}
+
+	if requestBody.ACL == "" {
+		requestBody.ACL = "11"
 	}
 
 	type successReturn struct {
@@ -114,22 +129,22 @@ func (a *App) handleAddRequest(conn *websocket.Conn, request Request, originKey 
 	}
 
 	success := successReturn{
-		DidSucceed: make(map[string]bool, len(request.Data.Values)),
+		DidSucceed: make(map[string]bool, len(requestBody.Values)),
 	}
 
-	acl, err := sanitizeACL(request.Data.ACL)
+	acl, err := sanitizeACL(requestBody.ACL)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
 	globalWrite, err := a.getGlobalWrite(originKey)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
-	for k, v := range request.Data.Values {
+	for k, v := range requestBody.Values {
 		origin := originKey + "-" + k
 		if request.ForceDomain != "" {
 			origin = request.ForceDomain + "-" + k
@@ -153,12 +168,9 @@ func (a *App) handleAddRequest(conn *websocket.Conn, request Request, originKey 
 		encryptedValue, err := AesGCMEncrypt(a.dbCryptKey, []byte(v))
 		if err != nil {
 			logger.Error(err)
-			return
+			return nil, err
 		}
-		print("origin: " + origin + "\n")
 		encBytes = append([]byte(acl), encryptedValue...)
-		print("encBytes: " + string(encBytes) + "\n")
-		print("ff: " + string(encBytes[:2]) + "\n")
 		err = a.store.Put(a.ctx, ds.NewKey(origin), encBytes)
 		if err != nil {
 			success.DidSucceed[k] = false
@@ -172,33 +184,42 @@ func (a *App) handleAddRequest(conn *websocket.Conn, request Request, originKey 
 	successJson, err := json.Marshal(success)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
-	// Send the success response to the client
-	err = conn.WriteMessage(websocket.TextMessage, successJson)
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+	return successJson, nil
 }
 
-func (a *App) handleGetRequest(conn *websocket.Conn, request Request, originKey string) {
+func (a *App) handleGetRequest(_ *websocket.Conn, request Request, originKey string) ([]byte, error) {
+	var requestBody struct {
+		Values []string `json:"values"`
+	}
+	err := json.Unmarshal(request.Data, &requestBody)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	if len(requestBody.Values) == 0 {
+		logger.Error("Invalid request body: no keys provided")
+		return nil, fmt.Errorf("invalid request body: no keys provided")
+	}
+
 	type returnMessage struct {
-		Keys map[string]string `json:"keys"`
+		Success bool              `json:"didSucceed"`
+		Keys    map[string]string `json:"keys"`
 	}
 
 	returnMessages := returnMessage{
-		Keys: make(map[string]string, len(request.Data.Keys)),
+		Success: false,
+		Keys:    make(map[string]string, len(requestBody.Values)),
 	}
 
-	for _, k := range request.Data.Keys {
+	for _, k := range requestBody.Values {
 		origin := originKey + "-" + k
 		if request.ForceDomain != "" {
 			origin = request.ForceDomain + "-" + k
-			print("forced")
 		}
-		print("origin: " + origin + "\n")
 		// Retrieve the value from the store
 		value, err := a.store.Get(a.ctx, ds.NewKey(origin))
 		if err != nil {
@@ -221,30 +242,40 @@ func (a *App) handleGetRequest(conn *websocket.Conn, request Request, originKey 
 	}
 
 	// Encode the return messages
+	returnMessages.Success = true
 	retMessages, err := json.Marshal(returnMessages)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
-	// Send the return messages to the client
-	err = conn.WriteMessage(websocket.TextMessage, retMessages)
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+	return retMessages, nil
 }
 
-func (a *App) handleDeleteRequest(conn *websocket.Conn, request Request, originKey string) {
+func (a *App) handleDeleteRequest(_ *websocket.Conn, request Request, originKey string) ([]byte, error) {
+	var requestBody struct {
+		Values []string `json:"values"`
+	}
+	err := json.Unmarshal(request.Data, &requestBody)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	if len(requestBody.Values) == 0 {
+		logger.Error("Invalid request body: no keys provided")
+		return nil, fmt.Errorf("invalid request body: no keys provided")
+	}
+
 	type successReturn struct {
 		DidSucceed map[string]bool `json:"didSucceed"`
 	}
 
 	success := successReturn{
-		DidSucceed: make(map[string]bool, len(request.Data.Keys)),
+		DidSucceed: make(map[string]bool, len(requestBody.Values)),
 	}
 
-	for _, k := range request.Data.Keys {
+	for _, k := range requestBody.Values {
 		origin := originKey + "-" + k
 		if request.ForceDomain != "" {
 			origin = request.ForceDomain + "-" + k
@@ -275,13 +306,8 @@ func (a *App) handleDeleteRequest(conn *websocket.Conn, request Request, originK
 	successJson, err := json.Marshal(success)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
-	// Send the success response to the client
-	err = conn.WriteMessage(websocket.TextMessage, successJson)
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+	return successJson, nil
 }

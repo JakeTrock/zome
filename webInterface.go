@@ -29,12 +29,7 @@ func (a *App) initWeb() {
 type Request struct {
 	Action      string `json:"action"`
 	ForceDomain string `json:"forceDomain"`
-	Data        struct {
-		ACL    string            `json:"acl"`
-		Value  string            `json:"value"`
-		Keys   []string          `json:"keys"`
-		Values map[string]string `json:"values"`
-	} `json:"data"`
+	Data        []byte `json:"data"`
 }
 
 func (a *App) websocketHandler(w http.ResponseWriter, r *http.Request) { //TODO: where will these requests come from?
@@ -73,24 +68,42 @@ func (a *App) websocketHandler(w http.ResponseWriter, r *http.Request) { //TODO:
 
 		println(string(message))
 
+		// Create the success response
+		success := []byte{}
 		// Process the request based on the action
 		switch request.Action {
 		case "add":
-			a.handleAddRequest(conn, request, host)
+			success, err = a.handleAddRequest(conn, request, host)
 		case "get":
-			a.handleGetRequest(conn, request, host)
+			success, err = a.handleGetRequest(conn, request, host)
 		case "delete":
-			a.handleDeleteRequest(conn, request, host)
+			success, err = a.handleDeleteRequest(conn, request, host)
 		case "setGlobalWrite":
-			a.setGlobalWrite(conn, request, host)
+			success, err = a.setGlobalWrite(conn, request, host)
 		case "removeOrigin":
-			a.removeOrigin(conn, request, host)
+			success, err = a.removeOrigin(conn, request, host)
 
 		case "getServerStats":
-			a.getServerStats(conn, request, host)
+			success, err = a.getServerStats(conn, request, host)
 		default:
 			logger.Error("Invalid action")
 			return
+		}
+
+		if err != nil {
+			errByte := []byte(err.Error())
+			err = conn.WriteMessage(websocket.TextMessage, errByte)
+			if err != nil {
+				logger.Error(err)
+				return
+			}
+		} else {
+			// Send the success response to the client
+			err = conn.WriteMessage(websocket.TextMessage, success)
+			if err != nil {
+				logger.Error(err)
+				return
+			}
 		}
 	}
 }
@@ -109,7 +122,7 @@ func DirSize(path string) (int64, error) {
 	return size, err
 }
 
-func (a *App) getServerStats(conn *websocket.Conn, _ Request, _ string) { //TODO: consider security of this route
+func (a *App) getServerStats(conn *websocket.Conn, _ Request, _ string) ([]byte, error) { //TODO: consider security of this route
 	type returnMessage struct {
 		Stats map[string]string `json:"stats"`
 	}
@@ -144,13 +157,15 @@ func (a *App) getServerStats(conn *websocket.Conn, _ Request, _ string) { //TODO
 	retMessages, err := json.Marshal(returnMessages)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
 
 	// Send the return messages to the client
 	err = conn.WriteMessage(websocket.TextMessage, retMessages)
 	if err != nil {
 		logger.Error(err)
-		return
+		return nil, err
 	}
+
+	return retMessages, nil
 }
