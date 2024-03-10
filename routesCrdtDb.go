@@ -8,7 +8,7 @@ import (
 	ds "github.com/ipfs/go-datastore"
 )
 
-func (a *App) removeOrigin(_ *websocket.Conn, _ Request, originKey string) ([]byte, error) {
+func (a *App) removeOrigin(_ *websocket.Conn, _ Request, selfOrigin string) ([]byte, error) {
 	type successReturn struct {
 		DidSucceed bool `json:"didSucceed"`
 	}
@@ -16,7 +16,7 @@ func (a *App) removeOrigin(_ *websocket.Conn, _ Request, originKey string) ([]by
 	success := successReturn{
 		DidSucceed: false,
 	}
-	err := a.store.DB.DropPrefix([]byte(originKey))
+	err := a.store.DB.DropPrefix([]byte(selfOrigin))
 	if err != nil {
 		logger.Error(err)
 		success.DidSucceed = false
@@ -33,7 +33,7 @@ func (a *App) removeOrigin(_ *websocket.Conn, _ Request, originKey string) ([]by
 	return successJson, nil
 }
 
-func (a *App) setGlobalWrite(_ *websocket.Conn, request Request, originKey string) ([]byte, error) {
+func (a *App) setGlobalWrite(_ *websocket.Conn, request Request, selfOrigin string) ([]byte, error) {
 	var requestBody struct {
 		Value string `json:"value"`
 	}
@@ -56,7 +56,7 @@ func (a *App) setGlobalWrite(_ *websocket.Conn, request Request, originKey strin
 		DidSucceed: false,
 	}
 
-	origin := originKey + "]-GW"
+	origin := selfOrigin + "]-GW"
 
 	enableBool := requestBody.Value == "true"
 	enableByte := []byte{0}
@@ -82,28 +82,7 @@ func (a *App) setGlobalWrite(_ *websocket.Conn, request Request, originKey strin
 	return successJson, nil
 }
 
-func (a *App) getGlobalWrite(origin string) (bool, error) {
-	originKey := origin + "]-GW"
-	value, err := a.store.Get(a.ctx, ds.NewKey(originKey))
-	if err != nil {
-		if err != ds.ErrNotFound {
-			return false, err
-		} else {
-			//repair db to secure state
-			err = a.store.Put(a.ctx, ds.NewKey(originKey+"]-GW"), []byte{0})
-			if err != nil {
-				return false, err
-			}
-			return false, nil
-		}
-	}
-	if value[0] == 1 {
-		return true, nil
-	}
-	return false, nil
-}
-
-func (a *App) handleAddRequest(_ *websocket.Conn, request Request, originKey string) ([]byte, error) { //TODO: switch to using badger write
+func (a *App) handleAddRequest(_ *websocket.Conn, request Request, selfOrigin string) ([]byte, error) { //TODO: switch to using badger write
 	var requestBody struct {
 		ACL    string            `json:"acl"`
 		Values map[string]string `json:"values"`
@@ -128,56 +107,19 @@ func (a *App) handleAddRequest(_ *websocket.Conn, request Request, originKey str
 		DidSucceed map[string]bool `json:"didSucceed"`
 	}
 
+	var origin = selfOrigin
+	if request.ForceDomain != "" {
+		origin = request.ForceDomain
+	}
+
+	successResult, err := a.secureAddLoop(requestBody.Values, requestBody.ACL, origin, selfOrigin)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
 	success := successReturn{
-		DidSucceed: make(map[string]bool, len(requestBody.Values)),
-	}
-
-	acl, err := sanitizeACL(requestBody.ACL)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	globalWrite, err := a.getGlobalWrite(originKey)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-
-	for k, v := range requestBody.Values {
-		origin := originKey + "-" + k
-		if request.ForceDomain != "" {
-			origin = request.ForceDomain + "-" + k
-		}
-		// check value exists
-		value, err := a.store.Get(a.ctx, ds.NewKey(origin))
-		if err != nil {
-			if err != ds.ErrNotFound {
-				success.DidSucceed[k] = false
-				continue
-			} else if globalWrite { // only continue if the global write is enabled
-				success.DidSucceed[k] = false
-			}
-		} else if checkACL(string(value[:2]), "2", originKey, origin) {
-			success.DidSucceed[k] = false
-			continue
-		}
-
-		var encBytes []byte
-		// Encrypt the value with the private key
-		encryptedValue, err := AesGCMEncrypt(a.dbCryptKey, []byte(v))
-		if err != nil {
-			logger.Error(err)
-			return nil, err
-		}
-		encBytes = append([]byte(acl), encryptedValue...)
-		err = a.store.Put(a.ctx, ds.NewKey(origin), encBytes)
-		if err != nil {
-			success.DidSucceed[k] = false
-			logger.Error(err)
-		} else {
-			success.DidSucceed[k] = true
-		}
+		DidSucceed: successResult,
 	}
 
 	// Encode the success response
@@ -190,7 +132,7 @@ func (a *App) handleAddRequest(_ *websocket.Conn, request Request, originKey str
 	return successJson, nil
 }
 
-func (a *App) handleGetRequest(_ *websocket.Conn, request Request, originKey string) ([]byte, error) {
+func (a *App) handleGetRequest(_ *websocket.Conn, request Request, selfOrigin string) ([]byte, error) {
 	var requestBody struct {
 		Values []string `json:"values"`
 	}
@@ -210,35 +152,20 @@ func (a *App) handleGetRequest(_ *websocket.Conn, request Request, originKey str
 		Keys    map[string]string `json:"keys"`
 	}
 
-	returnMessages := returnMessage{
-		Success: false,
-		Keys:    make(map[string]string, len(requestBody.Values)),
+	var origin = selfOrigin
+	if request.ForceDomain != "" {
+		origin = request.ForceDomain
 	}
 
-	for _, k := range requestBody.Values {
-		origin := originKey + "-" + k
-		if request.ForceDomain != "" {
-			origin = request.ForceDomain + "-" + k
-		}
-		// Retrieve the value from the store
-		value, err := a.store.Get(a.ctx, ds.NewKey(origin))
-		if err != nil {
-			logger.Error(err)
-			returnMessages.Keys[k] = "error"
-			continue
-		}
-		//check ACL
-		if checkACL(string(value[:2]), "1", originKey, origin) {
-			returnMessages.Keys[k] = "Bad ACL"
-			continue
-		}
-		// Decrypt the value with the private key
-		decryptedValue, err := AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off
-		if err != nil {
-			logger.Error(err)
-			returnMessages.Keys[k] = "error"
-		}
-		returnMessages.Keys[k] = string(decryptedValue)
+	getResult, err := a.secureGetLoop(requestBody.Values, origin, selfOrigin)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	returnMessages := returnMessage{
+		Success: false,
+		Keys:    getResult,
 	}
 
 	// Encode the return messages
@@ -252,7 +179,7 @@ func (a *App) handleGetRequest(_ *websocket.Conn, request Request, originKey str
 	return retMessages, nil
 }
 
-func (a *App) handleDeleteRequest(_ *websocket.Conn, request Request, originKey string) ([]byte, error) {
+func (a *App) handleDeleteRequest(_ *websocket.Conn, request Request, selfOrigin string) ([]byte, error) {
 	var requestBody struct {
 		Values []string `json:"values"`
 	}
@@ -276,7 +203,7 @@ func (a *App) handleDeleteRequest(_ *websocket.Conn, request Request, originKey 
 	}
 
 	for _, k := range requestBody.Values {
-		origin := originKey + "-" + k
+		origin := selfOrigin + "-" + k
 		if request.ForceDomain != "" {
 			origin = request.ForceDomain + "-" + k
 		}
@@ -288,7 +215,7 @@ func (a *App) handleDeleteRequest(_ *websocket.Conn, request Request, originKey 
 			continue
 		}
 		//check ACL
-		if checkACL(string(value[:2]), "3", originKey, origin) {
+		if checkACL(string(value[:2]), "3", selfOrigin, origin) {
 			success.DidSucceed[k] = false
 			continue
 		}
@@ -310,4 +237,145 @@ func (a *App) handleDeleteRequest(_ *websocket.Conn, request Request, originKey 
 	}
 
 	return successJson, nil
+}
+
+func (a *App) getGlobalWrite(_ *websocket.Conn, _ Request, selfOrigin string) ([]byte, error) {
+	gwrite, err := a.globalWriteAbstract(selfOrigin)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+	successObj := struct {
+		GlobalWrite bool `json:"globalWrite"`
+	}{}
+	successObj.GlobalWrite = gwrite
+	success, err := json.Marshal(successObj)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+	return success, nil
+}
+
+// utils
+
+func (a *App) globalWriteAbstract(origin string) (bool, error) {
+	selfOrigin := origin + "]-GW"
+	value, err := a.store.Get(a.ctx, ds.NewKey(selfOrigin))
+	if err != nil {
+		if err != ds.ErrNotFound {
+			return false, err
+		} else {
+			//repair db to secure state
+			err = a.store.Put(a.ctx, ds.NewKey(selfOrigin+"]-GW"), []byte{0})
+			if err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+	}
+	if value[0] == 1 {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (a *App) secureAddLoop(addValues map[string]string, ACL string, origin string, selfOrigin string) (map[string]bool, error) {
+
+	success := make(map[string]bool, len(addValues))
+
+	acl, err := sanitizeACL(ACL)
+	if err != nil {
+		logger.Error(err)
+		return nil, err
+	}
+
+	var globalWrite = false
+	if origin != selfOrigin {
+		globalWrite, err = a.globalWriteAbstract(origin)
+		if err != nil {
+			logger.Error(err)
+			return nil, err
+		}
+	} else {
+		globalWrite = true
+	}
+
+	for k, v := range addValues {
+		origin := origin + "-" + k
+		// check value exists
+		didSucceed, err := a.secureAdd(origin, v, acl, origin, globalWrite)
+		if err != nil {
+			logger.Error(err)
+			success[k] = false
+		}
+		success[k] = didSucceed
+	}
+	return success, nil
+}
+
+func (a *App) secureGetLoop(getValues []string, origin string, selfOrigin string) (map[string]string, error) {
+	success := make(map[string]string, len(getValues))
+
+	for _, k := range getValues {
+		origin := origin + "-" + k
+		// Retrieve the value from the store
+		decryptedValue, err := a.secureGet(origin, selfOrigin)
+		if err != nil {
+			logger.Error(err)
+			success[k] = ""
+		}
+		success[k] = decryptedValue
+	}
+	return success, nil
+}
+
+func (a *App) secureAdd(origin string, valueText string, acl string, selfOrigin string, globalWrite bool) (bool, error) {
+	priorValue, err := a.store.Get(a.ctx, ds.NewKey(origin))
+	if err != nil {
+		if err != ds.ErrNotFound {
+			return false, err
+		} else if !globalWrite { // only continue if the global write is enabled
+			return false, nil
+		}
+	} else if checkACL(string(priorValue[:2]), "2", selfOrigin, origin) {
+		return false, nil
+	}
+
+	var encBytes []byte
+	// Encrypt the value with the private key
+	encryptedValue, err := AesGCMEncrypt(a.dbCryptKey, []byte(valueText))
+	if err != nil {
+		logger.Error(err)
+		return false, err
+	}
+	encBytes = append([]byte(acl), encryptedValue...)
+	err = a.store.Put(a.ctx, ds.NewKey(origin), encBytes)
+	if err != nil {
+		logger.Error(err)
+		return false, err
+	}
+	return true, nil
+}
+
+func (a *App) secureGet(origin string, originSelf string) (string, error) {
+	// Retrieve the value from the store
+	value, err := a.store.Get(a.ctx, ds.NewKey(origin))
+	if err != nil {
+		logger.Error(err)
+		return "", err
+
+	}
+	//check ACL
+	if checkACL(string(value[:2]), "1", originSelf, origin) {
+		return "", nil
+	}
+	// Decrypt the value with the private key
+	decryptedValue, err := AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off
+	if err != nil {
+		logger.Error(err)
+		return "", err
+	}
+
+	return string(decryptedValue), nil
 }

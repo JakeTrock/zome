@@ -1,4 +1,6 @@
 zomeHeadless
 TODO.md
 .DS_Store
-testPath
+testPath/zome
+testPath/zome-data
+testPath/data

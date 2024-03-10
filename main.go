@@ -40,7 +40,8 @@ type App struct {
 	host       host.Host
 	subTopics  map[string][]string
 
-	fsMutex sync.Mutex
+	fsMutex        sync.Mutex
+	fsActiveWrites map[string]UploadHeader
 
 	peerId     peer.ID
 	privateKey crypto.PrivKey
@@ -158,7 +159,7 @@ func (a *App) Startup(overrides map[string]string) {
 
 	configFilePath := initPath(overrides["configPath"])
 
-	data := filepath.Join(configFilePath, name+"-data")
+	data := filepath.Join(configFilePath, name)
 
 	store, err := badger.NewDatastore(data, &badger.DefaultOptions)
 	if err != nil {
@@ -182,6 +183,7 @@ func (a *App) Startup(overrides map[string]string) {
 	a.privateKey = priv
 	a.dbCryptKey = retrieveDbKey(data) // file based key, can be moved to lock db
 
+	a.fsActiveWrites = make(map[string]UploadHeader)
 	a.store = store
 }
 

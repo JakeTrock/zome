@@ -70,7 +70,7 @@
                 </form>
             </div>
             <div>
-                <h1>FS</h1>
+                <h1>FS:incomplete</h1>
                 <h2>Get Operation</h2>
                 <form id="getForm">
                     <label for="forceDomain">Force Domain:</label>
@@ -118,7 +118,7 @@
     </div>
 </body>
 <script>
-    var socket = new WebSocket("ws://localhost:5253/");
+    var socket = new WebSocket("ws://localhost:5253/v1/control/");
     var output = document.getElementById("output");
 
     socket.onopen = function (event) {
@@ -176,17 +176,13 @@
         });
     }
 
-    generalizedReq(document.getElementById("addForm"), "add");
-    generalizedReq(document.getElementById("setGlobalWriteForm"), "setGlobalWrite");
-    generalizedReq(document.getElementById("getForm"), "get");
-    generalizedReq(document.getElementById("deleteForm"), "delete");
-    generalizedReq(document.getElementById("removeOriginForm"), "removeOrigin");
+    generalizedReq(document.getElementById("addForm"), "db-add");
+    generalizedReq(document.getElementById("setGlobalWriteForm"), "db-setGlobalWrite");
+    generalizedReq(document.getElementById("getForm"), "db-get");
+    generalizedReq(document.getElementById("deleteForm"), "db-delete");
+    generalizedReq(document.getElementById("removeOriginForm"), "db-removeOrigin");
 
-    generalizedReq(document.getElementById("getServerStats"), "getServerStats");
-
-    generalizedReq(document.getElementById("putForm"), "put");
-    generalizedReq(document.getElementById("getForm"), "get");
-    generalizedReq(document.getElementById("deleteForm"), "delete");
+    generalizedReq(document.getElementById("getServerStats"), "ad-getServerStats");
 </script>
 
 </html>

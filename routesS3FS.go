@@ -12,17 +12,19 @@ import (
 
 	"github.com/gorilla/websocket"
 	ds "github.com/ipfs/go-datastore"
+	"github.com/lucsky/cuid"
 )
 
 func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
-	var requestBody struct {
-		Key     string `json:"key"`
-		Tagging string `json:"tagging"`
-		file    io.Reader
+	var requestBody struct { // TODO: add forcedomain(also should we cache global ACLs?)
+		FileName     string `json:"filename"`
+		FileSize     int64  `json:"filesize"`
+		Tagging      string `json:"tagging"`
+		OverridePath string `json:"overridePath"`
 	}
 	var successObj = struct {
 		DidSucceed bool   `json:"didSucceed"`
-		Hash       string `json:"hash"`
+		UploadId   string `json:"uploadId"` //the id which you will open a socket to in /upload/:id
 		Error      string `json:"error"`
 	}{DidSucceed: false}
 
@@ -32,35 +34,36 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 		successObj.Error = err.Error()
 	}
 
-	if requestBody.Key == "" {
-		return nil, fmt.Errorf("Key is required")
+	if requestBody.FileName == "" {
+		return nil, fmt.Errorf("file name is required")
+	}
+	//TODO: sanitize path, ensure not contains .., or isn't a dir
+	if requestBody.FileSize == 0 {
+		return nil, fmt.Errorf("file size is required")
 	}
 
-	a.fsMutex.Lock()
-	defer a.fsMutex.Unlock()
-
-	key := path.Join(originKey, requestBody.Key)
+	key := path.Join(originKey, requestBody.FileName)
+	//check file not exists
 	writePath := path.Join(a.operatingPath, "data", key)
-
-	file, err := os.Create(writePath) // TODO: add forcedomain(also should we cache global ACLs?)
-
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-	defer file.Close()
-
-	_, err = io.Copy(file, requestBody.file)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
+	_, err = os.Stat(writePath)
+	if err == nil {
+		return nil, fmt.Errorf("file already exists: %s", key)
 	}
 
-	metaObject := map[string]string{}
+	randomId := cuid.New()
+
+	a.fsActiveWrites[randomId] = UploadHeader{
+		Filename: requestBody.FileName,
+		Size:     requestBody.FileSize,
+	}
+
+	successObj.UploadId = randomId
+
+	metaObject := make(map[string]string)
 	if requestBody.Tagging != "" {
 		u, err := url.Parse("/?" + requestBody.Tagging)
 		if err != nil {
-			panic(fmt.Errorf("Unable to parse tagging string %q: %w", requestBody.Tagging, err))
+			return nil, fmt.Errorf("enable to parse tagging string %q: %w", requestBody.Tagging, err)
 		}
 
 		q := u.Query()
@@ -69,28 +72,24 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 		}
 	}
 
-	//calculate file sha256
-	sum256, err := sha256File(writePath)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-	metaObject["sha256"] = sum256
-
 	metaObjJson, err := json.Marshal(metaObject)
 	if err != nil {
 		logger.Error(err)
 		return nil, err
 	}
 
-	err = a.store.Put(a.ctx, ds.NewKey(key), metaObjJson)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
+	origin := originKey
+	if request.ForceDomain != "" {
+		origin = request.ForceDomain
 	}
 
+	writeObject := make(map[string]string)
+	writeObject[key] = string(metaObjJson)
+
+	a.secureAddLoop(writeObject, "33", origin, originKey)
+
 	successObj.DidSucceed = true
-	successObj.Hash = sum256
+
 	sbytes, err := json.Marshal(successObj)
 	if err != nil {
 		logger.Error(err)
@@ -119,7 +118,7 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 	}
 
 	if requestBody.Key == "" {
-		return nil, fmt.Errorf("Key is required")
+		return nil, fmt.Errorf("key is required")
 	}
 
 	a.fsMutex.Lock()
@@ -131,7 +130,7 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 	_, err = os.Stat(writePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("The specified key does not exist: %s", key)
+			return nil, fmt.Errorf("the specified key does not exist: %s", key)
 		}
 		return nil, err
 	}
@@ -143,21 +142,18 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 	}
 	defer file.Close()
 	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
 
 	metaObject, err := a.store.Get(a.ctx, ds.NewKey(key))
 	if err != nil {
 		return nil, err
 	}
-	metaJson := map[string]string{}
+	metaJson := make(map[string]string)
 	err = json.Unmarshal(metaObject, &metaJson)
 	if err != nil {
 		return nil, err
-	}
-
-	metaJsonPtr := make(map[string]*string)
-	for k, v := range metaJson {
-		value := v
-		metaJsonPtr[k] = &value
 	}
 
 	successObj.DidSucceed = true
@@ -189,7 +185,7 @@ func (a *App) DeleteObjectRoute(conn *websocket.Conn, request Request, originKey
 	}
 
 	if requestBody.Key == "" {
-		return nil, fmt.Errorf("Key is required")
+		return nil, fmt.Errorf("key is required")
 	}
 
 	a.fsMutex.Lock()
