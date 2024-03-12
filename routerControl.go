@@ -19,7 +19,7 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		logger.Error(err)
 		return
 	}
-	defer conn.Close()
+	defer killSocket(conn)
 
 	for {
 		// Read the message from the client
@@ -38,8 +38,6 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 			logger.Error(err)
 			return
 		}
-
-		println(string(message))
 
 		// Create the success response
 		success := []byte{}
@@ -62,6 +60,10 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		// FS routes
 		case "fs-putObject":
 			success, err = a.PutObjectRoute(conn, request, host)
+		case "fs-getObject":
+			success, err = a.GetObjectRoute(conn, request, host)
+		case "fs-deleteObject":
+			success, err = a.DeleteObjectRoute(conn, request, host)
 
 		// ADmin routes
 		case "ad-getServerStats":

@@ -72,11 +72,8 @@ func sanitizeACL(aclString string) (string, error) {
 	// 11 = r- r-
 	// 22 = -w -w
 	// 33 = rw rw
-	println(aclString)
 
 	keyRegex := "^[1-3]{2}$"
-
-	println(regexp.MustCompile(keyRegex).MatchString(aclString))
 
 	if !regexp.MustCompile(keyRegex).MatchString(aclString) {
 		return "", fmt.Errorf("invalid acl")

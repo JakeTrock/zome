@@ -35,6 +35,7 @@ func TestMain(m *testing.M) {
 	//clear the testPath
 
 	os.RemoveAll(path.Join(testPath, "zome"))
+	os.RemoveAll(path.Join(testPath, "downloads"))
 	setupSuite()
 	code := m.Run()
 	// Perform any teardown or cleanup here

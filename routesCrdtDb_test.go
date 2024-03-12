@@ -16,7 +16,6 @@ func TestHandleRemoveOrigin(t *testing.T) {
 	}
 
 	controlSocket := establishControlSocket()
-	defer controlSocket.Close()
 
 	//make removeorigin request to controlSocket
 	err := controlSocket.WriteJSON(Request{
@@ -46,7 +45,6 @@ func TestHandleAddRequest(t *testing.T) {
 	}
 
 	controlSocket := establishControlSocket()
-	defer controlSocket.Close()
 
 	requestData, _ := json.Marshal(requestBody)
 
@@ -82,7 +80,6 @@ func TestSetGlobalWrite(t *testing.T) {
 	// Test case 1: Valid request
 
 	controlSocket := establishControlSocket()
-	defer controlSocket.Close()
 
 	expectedSuccess := struct {
 		DidSucceed bool `json:"didSucceed"`
@@ -150,7 +147,6 @@ func TestSetGlobalWrite(t *testing.T) {
 	err = controlSocket.ReadJSON(&unmarshalledGW)
 	assert.NoError(t, err)
 	assert.False(t, unmarshalledGW.GlobalWrite)
-
 }
 
 func TestHandleGetRequest(t *testing.T) {
@@ -159,7 +155,6 @@ func TestHandleGetRequest(t *testing.T) {
 	randomKeyValuePairs, randomList, _ := generateRandomStructs()
 
 	controlSocket := establishControlSocket()
-	defer controlSocket.Close()
 
 	requestBody := struct {
 		Values []string `json:"values"`
@@ -209,7 +204,6 @@ func TestHandleDeleteRequest(t *testing.T) {
 	randomKeyValuePairs, randomList, _ := generateRandomStructs()
 
 	controlSocket := establishControlSocket()
-	defer controlSocket.Close()
 
 	requestBody := struct {
 		Values []string `json:"values"`

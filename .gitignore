@@ -2,5 +2,4 @@ zomeHeadless
 TODO.md
 .DS_Store
 testPath/zome
-testPath/zome-data
-testPath/data
+testPath/downloads

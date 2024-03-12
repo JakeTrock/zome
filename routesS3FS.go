@@ -1,11 +1,9 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path"
@@ -17,7 +15,7 @@ import (
 
 func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
 	var requestBody struct { // TODO: add forcedomain(also should we cache global ACLs?)
-		FileName     string `json:"filename"`
+		FileName     string `json:"filename"` //TODO: change filename to key
 		FileSize     int64  `json:"filesize"`
 		Tagging      string `json:"tagging"`
 		OverridePath string `json:"overridePath"`
@@ -44,7 +42,7 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 
 	key := path.Join(originKey, requestBody.FileName)
 	//check file not exists
-	writePath := path.Join(a.operatingPath, "data", key)
+	writePath := path.Join(a.operatingPath, "zome", "data", key)
 	_, err = os.Stat(writePath)
 	if err == nil {
 		return nil, fmt.Errorf("file already exists: %s", key)
@@ -84,7 +82,7 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 	}
 
 	writeObject := make(map[string]string)
-	writeObject[key] = string(metaObjJson)
+	writeObject[requestBody.FileName] = string(metaObjJson)
 
 	a.secureAddLoop(writeObject, "33", origin, originKey)
 
@@ -100,15 +98,13 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 
 func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
 	var requestBody struct {
-		Key     string `json:"key"`
-		Tagging string `json:"tagging"`
-		file    io.Reader
+		Key string `json:"key"`
 	}
 	var successObj = struct {
-		DidSucceed bool              `json:"didSucceed"`
-		Error      string            `json:"error"`
-		MetaData   map[string]string `json:"metadata"`
-		Body       io.ReadCloser     `json:"body"`
+		DidSucceed bool   `json:"didSucceed"`
+		Error      string `json:"error"`
+		MetaData   string `json:"metadata"`
+		DownloadId string `json:"downloadId"`
 	}{DidSucceed: false}
 
 	err := json.Unmarshal(request.Data, &requestBody)
@@ -121,44 +117,35 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 		return nil, fmt.Errorf("key is required")
 	}
 
-	a.fsMutex.Lock()
-	defer a.fsMutex.Unlock()
-
 	key := path.Join(originKey, requestBody.Key)
-	writePath := path.Join(a.operatingPath, "data", key)
+	writePath := path.Join(a.operatingPath, "zome", "data", key)
 
 	_, err = os.Stat(writePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("the specified key does not exist: %s", key)
+			return nil, fmt.Errorf("the specified file key does not exist: %s", key)
 		}
 		return nil, err
 	}
 
-	//open file
-	file, err := os.Open(writePath)
+	metaObject, err := a.secureGetLoop([]string{requestBody.Key}, originKey, originKey)
+	// metaObject, err := a.store.Get(a.ctx, ds.NewKey(requestBody.Key))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting metadata for key %q: %w", key, err)
 	}
-	defer file.Close()
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		return nil, err
-	}
+	// metaJson := make(map[string]string)
+	// err = json.Unmarshal(metaObject, &metaJson)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	metaObject, err := a.store.Get(a.ctx, ds.NewKey(key))
-	if err != nil {
-		return nil, err
-	}
-	metaJson := make(map[string]string)
-	err = json.Unmarshal(metaObject, &metaJson)
-	if err != nil {
-		return nil, err
-	}
+	randomId := cuid.New()
+
+	a.fsActiveReads[randomId] = requestBody.Key
 
 	successObj.DidSucceed = true
-	successObj.MetaData = metaJson
-	successObj.Body = io.NopCloser(bytes.NewReader(fileBytes)) //TODO: send as websocket loop
+	successObj.MetaData = metaObject[requestBody.Key]
+	successObj.DownloadId = randomId
 	sbytes, err := json.Marshal(successObj)
 	if err != nil {
 		logger.Error(err)
@@ -169,9 +156,7 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 
 func (a *App) DeleteObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
 	var requestBody struct {
-		Key     string `json:"key"`
-		Tagging string `json:"tagging"`
-		file    io.Reader
+		Key string `json:"key"`
 	}
 	var successObj = struct {
 		DidSucceed bool   `json:"didSucceed"`
@@ -188,11 +173,8 @@ func (a *App) DeleteObjectRoute(conn *websocket.Conn, request Request, originKey
 		return nil, fmt.Errorf("key is required")
 	}
 
-	a.fsMutex.Lock()
-	defer a.fsMutex.Unlock()
-
 	key := path.Join(originKey, requestBody.Key)
-	writePath := path.Join(a.operatingPath, "data", key)
+	writePath := path.Join(a.operatingPath, "zome", "data", key)
 
 	err = os.Remove(writePath)
 	if errors.Is(err, os.ErrNotExist) {
