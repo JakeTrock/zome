@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"math/rand"
 	"net/http"
 	"os"
@@ -99,28 +98,4 @@ func generateRandomStructs() (keyValueReq, listReq, singleReq) {
 	}
 
 	return randomKeyValuePairs, randomList, randomSingle
-}
-
-func addGeneralized(randomKeyValuePairs keyValueReq, originKey string) (map[string]bool, error) {
-	addRequestBody := struct {
-		ACL    string            `json:"acl"`
-		Values map[string]string `json:"values"`
-	}{
-		ACL:    "11",
-		Values: randomKeyValuePairs.values,
-	}
-	addRequestData, _ := json.Marshal(addRequestBody)
-	addRequest := Request{
-		Data: addRequestData,
-	}
-	// Add the key to the store
-	successJson, err := app.handleAddRequest(nil, addRequest, originKey)
-	if err != nil {
-		return nil, err
-	}
-	unmarshalledResponse := struct {
-		DidSucceed map[string]bool `json:"didSucceed"`
-	}{}
-	json.Unmarshal(successJson, &unmarshalledResponse)
-	return unmarshalledResponse.DidSucceed, nil
 }

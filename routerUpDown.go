@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,7 +8,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -21,38 +19,10 @@ type UploadHeader struct {
 	Size     int64
 }
 
-type UploadStatus struct {
-	Code   int    `json:"code,omitempty"`
-	Status string `json:"status,omitempty"`
-	Pct    *int   `json:"pct,omitempty"` // File processing AFTER upload is done.
-	pct    int
-}
-
-type wsConn struct {
-	conn *websocket.Conn
-}
-
-func (wsc wsConn) sendStatus(code int, status string) {
-	if msg, err := json.Marshal(UploadStatus{Code: code, Status: status}); err == nil {
-		wsc.conn.WriteMessage(websocket.TextMessage, msg)
-		if code == 500 {
-			fmt.Println("ECODE: ", err)
-		}
-	} //TODO: if status code is 500 range log it, use a logger
-}
-
-func (wsc wsConn) sendPct(pct int) {
-	stat := UploadStatus{pct: pct}
-	stat.Pct = &stat.pct
-	if msg, err := json.Marshal(stat); err == nil {
-		wsc.conn.WriteMessage(websocket.TextMessage, msg)
-	}
-}
-
 func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	socket := wsConn{}
 	//defer send close frame
-	defer killSocket(socket.conn)
+	defer socket.killSocket()
 	var err error
 	//get last string after / in path
 	routePath := strings.Split(r.URL.Path, "/")
@@ -61,23 +31,15 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	//TODO: how to do cross origin uploads?
 
 	// Open websocket connection.
-	upgrader := websocket.Upgrader{
-		HandshakeTimeout: time.Second * HandshakeTimeoutSecs,
-		CheckOrigin: func(r *http.Request) bool {
-			ogHeader := r.Header.Get("Origin")
-			//check ogheader is a valid url
-			return ogHeader != ""
-		},
-	}
-	socket.conn, err = upgrader.Upgrade(w, r, nil)
+	socket.conn, err = upgradeConn(w, r)
 	if err != nil {
-		fmt.Println("Error on open of websocket connection:", err)
+		logger.Errorf("Error on open of websocket connection: %v", err)
 		return
 	}
 	//check if uploadid in active writes
 	header, ok := a.fsActiveWrites[uploadId]
 	if !ok {
-		socket.sendStatus(400, "Invalid upload id")
+		socket.sendMessage(400, ("Invalid upload id"))
 		return
 	}
 
@@ -87,14 +49,14 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	// Create data folder if it doesn't exist.
 	if _, err = os.Stat(pathWithoutFile); os.IsNotExist(err) {
 		if err = os.MkdirAll(pathWithoutFile, 0755); err != nil {
-			socket.sendStatus(400, "Could not create data folder: "+err.Error())
+			socket.sendMessage(400, ("Could not create data folder: " + err.Error()))
 			return
 		}
 	}
 	// Create temp file to save file.
 	var tempFile *os.File
 	if tempFile, err = os.Create(writePath); err != nil {
-		socket.sendStatus(400, "Could not create temp file: "+err.Error())
+		socket.sendMessage(400, ("Could not create temp file: " + err.Error()))
 		return
 	}
 	defer tempFile.Close()
@@ -104,43 +66,43 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	for {
 		mt, message, err := socket.conn.ReadMessage()
 		if err != nil {
-			socket.sendStatus(400, "Error receiving file block: "+err.Error())
+			socket.sendMessage(400, ("Error receiving file block: " + err.Error()))
 			return
 		}
 		if mt != websocket.BinaryMessage {
 			if mt == websocket.TextMessage {
 				if string(message) == "CANCEL" {
-					socket.sendStatus(200, "Upload canceled")
+					socket.sendMessage(200, ("Upload canceled"))
 					//remove uploadid from active writes
 					delete(a.fsActiveWrites, uploadId)
 					err = os.Remove(tempFile.Name())
 					if err != nil {
-						socket.sendStatus(500, "Error removing temp file: "+err.Error())
+						socket.sendMessage(500, ("Error removing temp file: " + err.Error()))
 					}
 					return
 				} else if strings.HasPrefix(string(message), "SKIPTO") {
 					//if message begins with SKIPTO, skip to that point
 					skipIndex, err := strconv.ParseInt(strings.TrimPrefix(string(message), "SKIPTO"), 10, 64)
-					socket.sendStatus(200, fmt.Sprintf("Skipping to %d", skipIndex))
+					socket.sendMessage(200, ("Skipping to " + strconv.FormatInt(skipIndex, 10)))
 					if err != nil {
-						socket.sendStatus(400, "Bad skip position: "+err.Error())
+						socket.sendMessage(400, ("Bad skip position: " + err.Error()))
 					}
 					if skipIndex > header.Size {
-						socket.sendStatus(400, "Bad skip position: greater than file length")
+						socket.sendMessage(400, ("Bad skip position: greater than file length"))
 					}
 					bytesRead = skipIndex
 					continue
 				}
 
 			}
-			socket.sendStatus(400, "Invalid file block received")
+			socket.sendMessage(400, ("Invalid file block received"))
 			return
 		}
 
 		// tempFile.Write(message)
 		_, err = tempFile.WriteAt(message, bytesRead)
 		if err != nil {
-			socket.sendStatus(500, "Error writing to temp file: "+err.Error())
+			socket.sendMessage(500, ("Error writing to temp file: " + err.Error()))
 			return
 		}
 		bytesRead += int64(len(message))
@@ -157,7 +119,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	// calculate file sha256
 	sum256, err := sha256File(writePath)
 	if err != nil {
-		socket.sendStatus(400, "Error getting file hash: "+err.Error())
+		socket.sendMessage(500, ("Error getting file hash: " + err.Error()))
 		return
 	}
 	writeObj := map[string]string{}
@@ -165,7 +127,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 
 	_, err = a.secureAddLoop(writeObj, "11", origin, origin) //TODO: handle cross origin uploads
 	if err != nil {
-		socket.sendStatus(400, "Error adding file to db: "+err.Error())
+		socket.sendMessage(500, ("Error adding file to db: " + err.Error()))
 		return
 	}
 
@@ -176,19 +138,14 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 		BytesRead  int64  `json:"bytesRead"`
 	}{DidSucceed: true, Hash: sum256, FileName: header.Filename, BytesRead: bytesRead}
 
-	// Encode the success response
-	successJson, err := json.Marshal(successObj)
-	if err != nil {
-		socket.sendStatus(400, "Error encoding success response: "+err.Error())
-		return
-	}
-	socket.sendStatus(200, string(successJson))
+	socket.sendMessage(200, successObj)
+	return
 }
 
 func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	socket := wsConn{}
 	//defer send close frame
-	defer killSocket(socket.conn)
+	defer socket.killSocket()
 	var err error
 	//get last string after / in path
 	routePath := strings.Split(r.URL.Path, "/")
@@ -196,16 +153,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	origin := getOriginSegregator(r)
 	//TODO: how to do cross origin downloads?
 
-	// Open websocket connection.
-	upgrader := websocket.Upgrader{
-		HandshakeTimeout: time.Second * HandshakeTimeoutSecs,
-		CheckOrigin: func(r *http.Request) bool {
-			ogHeader := r.Header.Get("Origin")
-			//check ogheader is a valid url
-			return ogHeader != ""
-		},
-	}
-	socket.conn, err = upgrader.Upgrade(w, r, nil)
+	socket.conn, err = upgradeConn(w, r)
 	if err != nil {
 		fmt.Println("Error on open of websocket connection:", err)
 		return
@@ -213,7 +161,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	//check if uploadid in active writes
 	filePath, ok := a.fsActiveReads[downloadId]
 	if !ok {
-		socket.sendStatus(400, "Invalid download id")
+		socket.sendMessage(400, ("Invalid download id"))
 		return
 	}
 
@@ -222,7 +170,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	fi, err := os.Stat(readPath)
 	// Create data folder if it doesn't exist.
 	if os.IsNotExist(err) {
-		socket.sendStatus(400, "Could not find data: "+err.Error())
+		socket.sendMessage(400, ("Could not find data: " + err.Error()))
 		return
 	}
 
@@ -230,18 +178,39 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 
 	fileHandle, err := os.Open(readPath)
 	if err != nil {
-		socket.sendStatus(500, "Error opening file: "+err.Error())
+		socket.sendMessage(500, ("Error opening file: " + err.Error()))
 		return
 	}
 
 	// send filesize initially
-	socket.sendStatus(200, "{\"size\":"+strconv.FormatInt(fileSize, 10)+"}")
+	socket.sendMessage(200, struct {
+		Size int64 `json:"size"`
+	}{Size: fileSize})
 
 	//consistently write "test" to socket until cancel is received
 
 	// Read file blocks until all bytes are received.
 	bytesRead := int64(0)
 	fiBuf := make([]byte, 4096) //TODO: allow for changes in the buf size, or oh no... CONGESTION CONTROL ACK ACK ACK(geddit? :P)
+
+	//listen for messages on downloadsocket in a different goroutine
+	go func() {
+		for {
+			_, message, err := socket.conn.ReadMessage()
+			fmt.Println("Received message: ", string(message))
+			if err != nil {
+				socket.sendMessage(400, ("Error receiving file ACK: " + err.Error()))
+				return
+			}
+			if string(message) == "CANCEL" {
+				socket.sendMessage(200, ("Download canceled"))
+				//remove downloadid from active reads
+				delete(a.fsActiveReads, downloadId)
+				return
+			}
+		}
+	}()
+
 	for {
 		// mt, message, err := socket.conn.ReadMessage()//TODO: this is blocking, implement a different channel/use existing ctrl?
 		// if err != nil {
@@ -278,7 +247,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		numBytesRead, err := fileHandle.ReadAt(fiBuf, bytesRead)
 
 		if err != nil && err != io.EOF {
-			socket.sendStatus(500, "File error: "+err.Error())
+			socket.sendMessage(500, ("File error: " + err.Error()))
 			return
 		}
 
@@ -286,7 +255,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 
 		if numBytesRead > 0 {
 			if err := socket.conn.WriteMessage(websocket.BinaryMessage, fiBuf); err != nil {
-				socket.sendStatus(500, "Socket error: "+err.Error())
+				socket.sendMessage(500, ("Socket error: " + err.Error()))
 				return
 			}
 		}
@@ -305,11 +274,5 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		FileName   string `json:"fileName"`
 	}{DidSucceed: true, FileName: filePath}
 
-	// Encode the success response
-	successJson, err := json.Marshal(successObj)
-	if err != nil {
-		socket.sendStatus(400, "Error encoding success response: "+err.Error())
-		return
-	}
-	socket.sendStatus(200, string(successJson))
+	socket.sendMessage(200, successObj)
 }

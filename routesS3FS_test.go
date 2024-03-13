@@ -65,6 +65,7 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 		FileSize int64  `json:"filesize"`
 		Tagging  string `json:"tagging"`
 	}{
+
 		FileName: path.Join(randPath, path.Base(testFile.Name())),
 		FileSize: fileSize,
 		Tagging:  urlQuerystring,
@@ -79,15 +80,18 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
-		DidSucceed bool   `json:"didSucceed"`
-		UploadId   string `json:"uploadId"`
-		Error      string `json:"error"`
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			UploadId   string `json:"uploadId"`
+			Error      string `json:"error"`
+		} `json:"status"`
 	}{}
 	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	assert.True(t, unmarshalledResponse.DidSucceed)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
 
-	uploadId := unmarshalledResponse.UploadId
+	uploadId := unmarshalledResponse.Status.UploadId
 	assert.NotEmpty(t, uploadId)
 	if uploadId == "" {
 		return ""
@@ -115,22 +119,20 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 		assert.NotEmpty(t, msg)
 		if i == numChunks {
 			msgJson := struct {
-				Code   int    `json:"code"`
-				Status string `json:"status"`
+				Code   int `json:"code"`
+				Status struct {
+					DidSucceed bool   `json:"didSucceed"`
+					Hash       string `json:"hash"`
+					FileName   string `json:"fileName"`
+					BytesRead  int64  `json:"bytesRead"`
+				} `json:"status"`
 			}{}
 			err = json.Unmarshal(msg, &msgJson)
 			assert.NoError(t, err)
-			statusUnmarshalled := struct {
-				DidSucceed bool   `json:"didSucceed"`
-				Hash       string `json:"hash"`
-				FileName   string `json:"fileName"`
-				BytesRead  int64  `json:"bytesRead"`
-			}{}
-			err = json.Unmarshal([]byte(msgJson.Status), &statusUnmarshalled)
 			assert.NoError(t, err)
-			assert.True(t, statusUnmarshalled.DidSucceed)
-			assert.Equal(t, fileRequest.FileName, statusUnmarshalled.FileName)
-			assert.Equal(t, fileRequest.FileSize, statusUnmarshalled.BytesRead)
+			assert.True(t, msgJson.Status.DidSucceed)
+			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
+			assert.Equal(t, fileRequest.FileSize, msgJson.Status.BytesRead)
 		}
 		// assert.Equal(t, []byte("{\"pct\":"+fmt.Sprint((((i*chunkSize)*100)/fileRequest.FileSize)+1)+"}"), msg)
 	}
@@ -204,15 +206,18 @@ func TestFileSeek(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
-		DidSucceed bool   `json:"didSucceed"`
-		UploadId   string `json:"uploadId"`
-		Error      string `json:"error"`
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			UploadId   string `json:"uploadId"`
+			Error      string `json:"error"`
+		} `json:"status"`
 	}{}
 	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	assert.True(t, unmarshalledResponse.DidSucceed)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
 
-	uploadId := unmarshalledResponse.UploadId
+	uploadId := unmarshalledResponse.Status.UploadId
 	assert.NotEmpty(t, uploadId)
 	if uploadId == "" {
 		return
@@ -248,21 +253,18 @@ func TestFileSeek(t *testing.T) {
 
 		if i == halfChunks {
 			msgJson := struct {
-				Code   int    `json:"code"`
-				Status string `json:"status"`
+				Code   int `json:"code"`
+				Status struct {
+					DidSucceed bool   `json:"didSucceed"`
+					Hash       string `json:"hash"`
+					FileName   string `json:"fileName"`
+					BytesRead  int64  `json:"bytesRead"`
+				} `json:"status"`
 			}{}
 			err = json.Unmarshal(msg, &msgJson)
 			assert.NoError(t, err)
-			statusUnmarshalled := struct {
-				DidSucceed bool   `json:"didSucceed"`
-				Hash       string `json:"hash"`
-				FileName   string `json:"fileName"`
-				BytesRead  int64  `json:"bytesRead"`
-			}{}
-			err = json.Unmarshal([]byte(msgJson.Status), &statusUnmarshalled)
-			assert.NoError(t, err)
-			assert.True(t, statusUnmarshalled.DidSucceed)
-			assert.Equal(t, fileRequest.FileName, statusUnmarshalled.FileName)
+			assert.True(t, msgJson.Status.DidSucceed)
+			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
 			// assert.Equal(t, fileRequest.FileSize, statusUnmarshalled.BytesRead)//TODO: doesn't match
 		}
 
@@ -314,15 +316,18 @@ func TestFileCancel(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
-		DidSucceed bool   `json:"didSucceed"`
-		UploadId   string `json:"uploadId"`
-		Error      string `json:"error"`
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			UploadId   string `json:"uploadId"`
+			Error      string `json:"error"`
+		} `json:"status"`
 	}{}
 	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	assert.True(t, unmarshalledResponse.DidSucceed)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
 
-	uploadId := unmarshalledResponse.UploadId
+	uploadId := unmarshalledResponse.Status.UploadId
 	assert.NotEmpty(t, uploadId)
 	if uploadId == "" {
 		return
@@ -396,13 +401,16 @@ func TestFileDelete(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	unmarshalledDelete := struct {
-		DidSucceed bool   `json:"didSucceed"`
-		UploadId   string `json:"uploadId"`
-		Error      string `json:"error"`
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			UploadId   string `json:"uploadId"`
+			Error      string `json:"error"`
+		} `json:"status"`
 	}{}
 	err = controlSocket.ReadJSON(&unmarshalledDelete)
 	assert.NoError(t, err)
-	assert.True(t, unmarshalledDelete.DidSucceed)
+	assert.True(t, unmarshalledDelete.Status.DidSucceed)
 
 	//check file is gone
 
@@ -437,16 +445,19 @@ func TestDownload(t *testing.T) {
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
-		DidSucceed bool   `json:"didSucceed"`
-		DownloadId string `json:"downloadId"`
-		MetaData   string `json:"metadata"`
-		Error      string `json:"error"`
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			DownloadId string `json:"downloadId"`
+			MetaData   string `json:"metadata"`
+			Error      string `json:"error"`
+		} `json:"status"`
 	}{}
 	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	assert.True(t, unmarshalledResponse.DidSucceed)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
 
-	downloadId := unmarshalledResponse.DownloadId
+	downloadId := unmarshalledResponse.Status.DownloadId
 	assert.NotEmpty(t, downloadId)
 	if downloadId == "" {
 		return
@@ -456,17 +467,14 @@ func TestDownload(t *testing.T) {
 
 	//get expected size
 	sizeStruct := struct {
-		Code   int    `json:"code"`
-		Status string `json:"status"`
+		Code   int `json:"code"`
+		Status struct {
+			Size int64 `json:"size"`
+		} `json:"status"`
 	}{}
 	err = downloadSocket.ReadJSON(&sizeStruct)
 	assert.NoError(t, err)
-	sizeUnmarshalled := struct {
-		Size int64 `json:"size"`
-	}{}
-	err = json.Unmarshal([]byte(sizeStruct.Status), &sizeUnmarshalled)
-	assert.NoError(t, err)
-	assert.NotEmpty(t, sizeUnmarshalled.Size)
+	assert.NotEmpty(t, sizeStruct.Status.Size)
 
 	//pull chunks from download socket and feed them into testfile
 	for {
@@ -476,7 +484,7 @@ func TestDownload(t *testing.T) {
 		assert.NoError(t, err)
 
 		//check if we've written more than the expected size
-		if int64(len(chunk)) > sizeUnmarshalled.Size {
+		if int64(len(chunk)) > sizeStruct.Status.Size {
 			assert.Fail(t, "Downloaded more than expected size")
 		}
 
@@ -485,25 +493,22 @@ func TestDownload(t *testing.T) {
 		fiSize := fi.Size()
 
 		//check if we've written the expected size
-		if fiSize == sizeUnmarshalled.Size {
+		if fiSize == sizeStruct.Status.Size {
 			break
 		}
 
 		if mType == websocket.TextMessage {
 			msgJson := struct {
-				Code   int    `json:"code"`
-				Status string `json:"status"`
+				Code   int `json:"code"`
+				Status struct {
+					DidSucceed bool   `json:"didSucceed"`
+					FileName   string `json:"fileName"`
+				} `json:"status"`
 			}{}
 			err = json.Unmarshal(chunk, &msgJson)
 			assert.NoError(t, err)
-			statusUnmarshalled := struct {
-				DidSucceed bool   `json:"didSucceed"`
-				FileName   string `json:"fileName"`
-			}{}
-			err = json.Unmarshal([]byte(msgJson.Status), &statusUnmarshalled)
-			assert.NoError(t, err)
-			assert.True(t, statusUnmarshalled.DidSucceed)
-			assert.Equal(t, fileRequest.Key, statusUnmarshalled.FileName)
+			assert.True(t, msgJson.Status.DidSucceed)
+			assert.Equal(t, fileRequest.Key, msgJson.Status.FileName)
 			break
 		}
 

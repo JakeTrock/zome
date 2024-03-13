@@ -9,21 +9,24 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/gorilla/websocket"
 	ds "github.com/ipfs/go-datastore"
 )
 
 func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //TODO: where will these requests come from?
-	conn, err := upgrader.Upgrade(w, r, nil)
+	socket := wsConn{}
+	//defer send close frame
+	defer socket.killSocket()
+	var err error
+	socket.conn, err = upgradeConn(w, r)
+
 	if err != nil {
 		logger.Error(err)
 		return
 	}
-	defer killSocket(conn)
 
 	for {
 		// Read the message from the client
-		_, message, err := conn.ReadMessage()
+		_, message, err := socket.conn.ReadMessage()
 		if err != nil {
 			logger.Error(err)
 			return
@@ -39,64 +42,37 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 			return
 		}
 
-		// Create the success response
-		success := []byte{}
-		// Process the request based on the action
 		// DB routes
 		switch request.Action {
 		case "db-add":
-			success, err = a.handleAddRequest(conn, request, host)
+			a.handleAddRequest(socket, request, host)
 		case "db-get":
-			success, err = a.handleGetRequest(conn, request, host)
+			a.handleGetRequest(socket, request, host)
 		case "db-delete":
-			success, err = a.handleDeleteRequest(conn, request, host)
+			a.handleDeleteRequest(socket, request, host)
 		case "db-setGlobalWrite":
-			success, err = a.setGlobalWrite(conn, request, host)
+			a.setGlobalWrite(socket, request, host)
 		case "db-getGlobalWrite":
-			success, err = a.getGlobalWrite(conn, request, host)
+			a.getGlobalWrite(socket, request, host)
 		case "db-removeOrigin":
-			success, err = a.removeOrigin(conn, request, host)
+			a.removeOrigin(socket, request, host)
 
 		// FS routes
 		case "fs-putObject":
-			success, err = a.PutObjectRoute(conn, request, host)
+			a.PutObjectRoute(socket, request, host)
 		case "fs-getObject":
-			success, err = a.GetObjectRoute(conn, request, host)
+			a.GetObjectRoute(socket, request, host)
 		case "fs-deleteObject":
-			success, err = a.DeleteObjectRoute(conn, request, host)
+			a.DeleteObjectRoute(socket, request, host)
 
 		// ADmin routes
 		case "ad-getServerStats":
-			success, err = a.getServerStats(conn, request, host)
+			a.getServerStats(socket, request, host)
 		//TODO: admin routes for blocking origins, fs restrictions
 		default:
-			logger.Error("Invalid action")
+			// logger.Error("Invalid action")
+			socket.sendMessage(400, "Invalid action")
 			return
-		}
-
-		if err != nil {
-			errObject := struct {
-				Error string `json:"error"`
-			}{
-				Error: err.Error(),
-			}
-			errByte, err := json.Marshal(errObject)
-			if err != nil {
-				logger.Error(err)
-				return
-			}
-			err = conn.WriteMessage(websocket.TextMessage, errByte)
-			if err != nil {
-				logger.Error(err)
-				return
-			}
-		} else {
-			// Send the success response to the client
-			err = conn.WriteMessage(websocket.TextMessage, success)
-			if err != nil {
-				logger.Error(err)
-				return
-			}
 		}
 	}
 }
@@ -115,7 +91,7 @@ func DirSize(path string) (int64, error) {
 	return size, err
 }
 
-func (a *App) getServerStats(conn *websocket.Conn, _ Request, _ string) ([]byte, error) { //TODO: consider security of this route
+func (a *App) getServerStats(response wsConn, _ Request, _ string) ([]byte, error) { //TODO: consider security of this route
 	type returnMessage struct {
 		Stats map[string]string `json:"stats"`
 	}
@@ -154,11 +130,6 @@ func (a *App) getServerStats(conn *websocket.Conn, _ Request, _ string) ([]byte,
 	}
 
 	// Send the return messages to the client
-	err = conn.WriteMessage(websocket.TextMessage, retMessages)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
 
 	return retMessages, nil
 }

@@ -3,17 +3,15 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/url"
 	"os"
 	"path"
 
-	"github.com/gorilla/websocket"
 	ds "github.com/ipfs/go-datastore"
 	"github.com/lucsky/cuid"
 )
 
-func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
+func (a *App) PutObjectRoute(wc wsConn, request Request, originKey string) {
 	var requestBody struct { // TODO: add forcedomain(also should we cache global ACLs?)
 		FileName     string `json:"filename"` //TODO: change filename to key
 		FileSize     int64  `json:"filesize"`
@@ -23,21 +21,21 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 	var successObj = struct {
 		DidSucceed bool   `json:"didSucceed"`
 		UploadId   string `json:"uploadId"` //the id which you will open a socket to in /upload/:id
-		Error      string `json:"error"`
 	}{DidSucceed: false}
 
 	err := json.Unmarshal(request.Data, &requestBody)
 	if err != nil {
-		logger.Error(err)
-		successObj.Error = err.Error()
+		wc.sendMessage(400, (err.Error()))
 	}
 
 	if requestBody.FileName == "" {
-		return nil, fmt.Errorf("file name is required")
+		wc.sendMessage(400, ("file name is required"))
+		return
 	}
 	//TODO: sanitize path, ensure not contains .., or isn't a dir
 	if requestBody.FileSize == 0 {
-		return nil, fmt.Errorf("file size is required")
+		wc.sendMessage(400, ("file size is required"))
+		return
 	}
 
 	key := path.Join(originKey, requestBody.FileName)
@@ -45,7 +43,8 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 	writePath := path.Join(a.operatingPath, "zome", "data", key)
 	_, err = os.Stat(writePath)
 	if err == nil {
-		return nil, fmt.Errorf("file already exists: %s", key)
+		wc.sendMessage(400, ("file already exists"))
+		return
 	}
 
 	randomId := cuid.New()
@@ -61,7 +60,8 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 	if requestBody.Tagging != "" {
 		u, err := url.Parse("/?" + requestBody.Tagging)
 		if err != nil {
-			return nil, fmt.Errorf("enable to parse tagging string %q: %w", requestBody.Tagging, err)
+			wc.sendMessage(400, ("error parsing tagging string"))
+			return
 		}
 
 		q := u.Query()
@@ -72,8 +72,8 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 
 	metaObjJson, err := json.Marshal(metaObject)
 	if err != nil {
-		logger.Error(err)
-		return nil, err
+		wc.sendMessage(500, ("error marshalling metadata"))
+		return
 	}
 
 	origin := originKey
@@ -88,33 +88,29 @@ func (a *App) PutObjectRoute(conn *websocket.Conn, request Request, originKey st
 
 	successObj.DidSucceed = true
 
-	sbytes, err := json.Marshal(successObj)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-	return sbytes, nil
+	wc.sendMessage(200, successObj)
+	return
 }
 
-func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
+func (a *App) GetObjectRoute(wc wsConn, request Request, originKey string) {
 	var requestBody struct {
 		Key string `json:"key"`
 	}
 	var successObj = struct {
 		DidSucceed bool   `json:"didSucceed"`
-		Error      string `json:"error"`
 		MetaData   string `json:"metadata"`
 		DownloadId string `json:"downloadId"`
 	}{DidSucceed: false}
 
 	err := json.Unmarshal(request.Data, &requestBody)
 	if err != nil {
-		logger.Error(err)
-		successObj.Error = err.Error()
+		wc.sendMessage(400, (err.Error()))
+		return
 	}
 
 	if requestBody.Key == "" {
-		return nil, fmt.Errorf("key is required")
+		wc.sendMessage(400, ("key is required"))
+		return
 	}
 
 	key := path.Join(originKey, requestBody.Key)
@@ -123,15 +119,18 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 	_, err = os.Stat(writePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("the specified file key does not exist: %s", key)
+			wc.sendMessage(400, ("the specified file key does not exist"))
+			return
 		}
-		return nil, err
+		wc.sendMessage(500, ("error checking file existence"))
+		return
 	}
 
 	metaObject, err := a.secureGetLoop([]string{requestBody.Key}, originKey, originKey)
 	// metaObject, err := a.store.Get(a.ctx, ds.NewKey(requestBody.Key))
 	if err != nil {
-		return nil, fmt.Errorf("error getting metadata for key %q: %w", key, err)
+		wc.sendMessage(500, ("error getting metadata for key " + requestBody.Key + ": " + err.Error()))
+		return
 	}
 	// metaJson := make(map[string]string)
 	// err = json.Unmarshal(metaObject, &metaJson)
@@ -146,31 +145,27 @@ func (a *App) GetObjectRoute(conn *websocket.Conn, request Request, originKey st
 	successObj.DidSucceed = true
 	successObj.MetaData = metaObject[requestBody.Key]
 	successObj.DownloadId = randomId
-	sbytes, err := json.Marshal(successObj)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-	return sbytes, nil
+	wc.sendMessage(200, successObj)
+	return
 }
 
-func (a *App) DeleteObjectRoute(conn *websocket.Conn, request Request, originKey string) ([]byte, error) {
+func (a *App) DeleteObjectRoute(wc wsConn, request Request, originKey string) {
 	var requestBody struct {
 		Key string `json:"key"`
 	}
 	var successObj = struct {
-		DidSucceed bool   `json:"didSucceed"`
-		Error      string `json:"error"`
+		DidSucceed bool `json:"didSucceed"`
 	}{DidSucceed: false}
 
 	err := json.Unmarshal(request.Data, &requestBody)
 	if err != nil {
-		logger.Error(err)
-		successObj.Error = err.Error()
+		wc.sendMessage(400, (err.Error()))
+		return
 	}
 
 	if requestBody.Key == "" {
-		return nil, fmt.Errorf("key is required")
+		wc.sendMessage(400, ("key is required"))
+		return
 	}
 
 	key := path.Join(originKey, requestBody.Key)
@@ -181,7 +176,8 @@ func (a *App) DeleteObjectRoute(conn *websocket.Conn, request Request, originKey
 		successObj.DidSucceed = false
 	}
 	if err != nil {
-		return nil, err
+		wc.sendMessage(500, ("error deleting file: " + err.Error()))
+		return
 	}
 
 	err = a.store.Delete(a.ctx, ds.NewKey(key))
@@ -189,15 +185,12 @@ func (a *App) DeleteObjectRoute(conn *websocket.Conn, request Request, originKey
 		successObj.DidSucceed = false
 	}
 	if err != nil {
-		return nil, err
+		wc.sendMessage(500, ("error deleting metadata: " + err.Error()))
+		return
 	}
 
 	successObj.DidSucceed = true
 
-	sbytes, err := json.Marshal(successObj)
-	if err != nil {
-		logger.Error(err)
-		return nil, err
-	}
-	return sbytes, nil
+	wc.sendMessage(200, successObj)
+	return
 }
