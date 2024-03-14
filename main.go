@@ -42,7 +42,7 @@ type App struct {
 
 	fsMutex        sync.Mutex
 	fsActiveWrites map[string]UploadHeader
-	fsActiveReads  map[string]string
+	fsActiveReads  map[string]DownloadHeader
 
 	peerId     peer.ID
 	privateKey crypto.PrivKey
@@ -185,7 +185,7 @@ func (a *App) Startup(overrides map[string]string) {
 	a.dbCryptKey = retrieveDbKey(data) // file based key, can be moved to lock db
 
 	a.fsActiveWrites = make(map[string]UploadHeader)
-	a.fsActiveReads = make(map[string]string)
+	a.fsActiveReads = make(map[string]DownloadHeader)
 	a.store = store
 }
 

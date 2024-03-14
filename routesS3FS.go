@@ -99,7 +99,8 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct {
 		Request
 		Data struct {
-			Key string `json:"key"`
+			Key          string `json:"key"`
+			ContinueFrom int64  `json:"continueFrom"`
 		} `json:"data"`
 	}
 	var successObj = struct {
@@ -146,7 +147,10 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 
 	randomId := cuid.New()
 
-	a.fsActiveReads[randomId] = requestBody.Data.Key
+	a.fsActiveReads[randomId] = DownloadHeader{
+		Filename:     requestBody.Data.Key,
+		ContinueFrom: requestBody.Data.ContinueFrom,
+	}
 
 	successObj.DidSucceed = true
 	successObj.MetaData = metaObject[requestBody.Data.Key]

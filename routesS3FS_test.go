@@ -514,3 +514,228 @@ func TestDownload(t *testing.T) {
 
 	assert.Equal(t, ogSha, newSha)
 }
+
+func TestDownloadCancel(t *testing.T) {
+	controlSocket := establishControlSocket()
+
+	downloadTarget := putGeneralized(t, controlSocket)
+
+	downloadFile := createDownloadFile(t, generateRandomKey()+"-dlfile.jpg")
+	defer downloadFile.Close()
+
+	// make download folder
+
+	fileRequest := struct {
+		Key string `json:"key"`
+	}{
+		Key: downloadTarget,
+	}
+
+	err := controlSocket.WriteJSON(Request{
+		Action: "fs-getObject",
+		Data:   fileRequest,
+	})
+	assert.NoError(t, err)
+	unmarshalledResponse := struct {
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			DownloadId string `json:"downloadId"`
+			MetaData   string `json:"metadata"`
+			Error      string `json:"error"`
+		} `json:"status"`
+	}{}
+	err = controlSocket.ReadJSON(&unmarshalledResponse)
+	assert.NoError(t, err)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
+
+	downloadId := unmarshalledResponse.Status.DownloadId
+	assert.NotEmpty(t, downloadId)
+	if downloadId == "" {
+		return
+	}
+	//init download socket
+	downloadSocket := establishFileDownloadSocket(downloadId)
+
+	//get expected size
+	sizeStruct := struct {
+		Code   int `json:"code"`
+		Status struct {
+			Size int64 `json:"size"`
+		} `json:"status"`
+	}{}
+	err = downloadSocket.ReadJSON(&sizeStruct)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, sizeStruct.Status.Size)
+
+	// numChunks := sizeStruct.Status.Size / 1024
+	chunkCount := int64(0)
+
+	//pull chunks from download socket and feed them into testfile
+	for {
+		mType, chunk, err := downloadSocket.ReadMessage()
+		assert.NoError(t, err)
+
+		//check if we've written more than the expected size
+		if int64(len(chunk)) > sizeStruct.Status.Size {
+			assert.Fail(t, "Downloaded more than expected size")
+		}
+
+		fi, err := downloadFile.Stat()
+		assert.NoError(t, err)
+		fiSize := fi.Size()
+
+		// cancel download halfway through
+		if fiSize >= sizeStruct.Status.Size/2 {
+			downloadSocket.Close()
+			downloadFile.Close()
+			break
+		}
+
+		//check if we've written the expected size
+		if fiSize == sizeStruct.Status.Size {
+			downloadSocket.Close()
+			downloadFile.Close()
+			break
+		}
+
+		if mType == websocket.TextMessage {
+			msgJson := struct {
+				Code   int `json:"code"`
+				Status struct {
+					DidSucceed bool   `json:"didSucceed"`
+					FileName   string `json:"fileName"`
+				} `json:"status"`
+			}{}
+			err = json.Unmarshal(chunk, &msgJson)
+			assert.NoError(t, err)
+			assert.True(t, msgJson.Status.DidSucceed)
+			assert.Equal(t, fileRequest.Key, msgJson.Status.FileName)
+			break
+		}
+
+		_, err = downloadFile.Write(chunk)
+		chunkCount += 1
+		assert.NoError(t, err)
+	}
+
+	//hashes of input and output do not match
+	newSha, err := sha256File(downloadFile.Name())
+	assert.NoError(t, err)
+
+	baseurl, err := url.Parse(originVar)
+	assert.NoError(t, err)
+	originSeg := baseurl.Hostname()
+	ogSha, err := sha256File(path.Join("testPath", "zome", "data", originSeg, downloadTarget))
+	assert.NoError(t, err)
+
+	assert.NotEqual(t, ogSha, newSha)
+}
+
+func TestDownloadFromPoint(t *testing.T) {
+	controlSocket := establishControlSocket()
+
+	downloadTarget := putGeneralized(t, controlSocket)
+
+	downloadFile := createDownloadFile(t, generateRandomKey()+"-dlfile.jpg")
+	defer downloadFile.Close()
+
+	// make download folder
+
+	fileRequest := struct {
+		Key          string `json:"key"`
+		ContinueFrom int64  `json:"continueFrom"`
+	}{
+		Key:          downloadTarget,
+		ContinueFrom: 4096,
+	}
+
+	err := controlSocket.WriteJSON(Request{
+		Action: "fs-getObject",
+		Data:   fileRequest,
+	})
+	assert.NoError(t, err)
+	unmarshalledResponse := struct {
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			DownloadId string `json:"downloadId"`
+			MetaData   string `json:"metadata"`
+			Error      string `json:"error"`
+		} `json:"status"`
+	}{}
+	err = controlSocket.ReadJSON(&unmarshalledResponse)
+	assert.NoError(t, err)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
+
+	downloadId := unmarshalledResponse.Status.DownloadId
+	assert.NotEmpty(t, downloadId)
+	if downloadId == "" {
+		return
+	}
+	//init download socket
+	downloadSocket := establishFileDownloadSocket(downloadId)
+
+	//get expected size
+	sizeStruct := struct {
+		Code   int `json:"code"`
+		Status struct {
+			Size int64 `json:"size"`
+		} `json:"status"`
+	}{}
+	err = downloadSocket.ReadJSON(&sizeStruct)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, sizeStruct.Status.Size)
+
+	//pull chunks from download socket and feed them into testfile
+	for {
+		// err = downloadSocket.WriteMessage(websocket.BinaryMessage, []byte(""))
+		// assert.NoError(t, err)
+		mType, chunk, err := downloadSocket.ReadMessage()
+		assert.NoError(t, err)
+
+		//check if we've written more than the expected size
+		if int64(len(chunk)) > sizeStruct.Status.Size {
+			assert.Fail(t, "Downloaded more than expected size")
+		}
+
+		fi, err := downloadFile.Stat()
+		assert.NoError(t, err)
+		fiSize := fi.Size()
+
+		//check if we've written the expected size
+		if fiSize == sizeStruct.Status.Size {
+			break
+		}
+
+		if mType == websocket.TextMessage {
+			msgJson := struct {
+				Code   int `json:"code"`
+				Status struct {
+					DidSucceed bool   `json:"didSucceed"`
+					FileName   string `json:"fileName"`
+				} `json:"status"`
+			}{}
+			err = json.Unmarshal(chunk, &msgJson)
+			assert.NoError(t, err)
+			assert.True(t, msgJson.Status.DidSucceed)
+			assert.Equal(t, fileRequest.Key, msgJson.Status.FileName)
+			break
+		}
+
+		_, err = downloadFile.Write(chunk)
+		assert.NoError(t, err)
+	}
+
+	//hashes of input and output match
+	newSha, err := sha256File(downloadFile.Name())
+	assert.NoError(t, err)
+
+	baseurl, err := url.Parse(originVar)
+	assert.NoError(t, err)
+	originSeg := baseurl.Hostname()
+	ogSha, err := sha256File(path.Join("testPath", "zome", "data", originSeg, downloadTarget))
+	assert.NoError(t, err)
+
+	assert.NotEqual(t, ogSha, newSha)
+}

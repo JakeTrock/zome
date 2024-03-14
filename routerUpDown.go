@@ -19,6 +19,11 @@ type UploadHeader struct {
 	Size     int64
 }
 
+type DownloadHeader struct {
+	Filename     string
+	ContinueFrom int64
+}
+
 func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	socket := wsConn{}
 	//defer send close frame
@@ -165,7 +170,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	readPath := path.Join(a.operatingPath, "zome", "data", origin, filePath)
+	readPath := path.Join(a.operatingPath, "zome", "data", origin, filePath.Filename)
 
 	fi, err := os.Stat(readPath)
 	// Create data folder if it doesn't exist.
@@ -175,6 +180,16 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fileSize := fi.Size()
+
+	if fileSize == 0 {
+		socket.sendMessage(400, ("File is empty"))
+		return
+	}
+
+	if fileSize < filePath.ContinueFrom {
+		socket.sendMessage(400, ("ContinueFrom is greater than file size"))
+		return
+	}
 
 	fileHandle, err := os.Open(readPath)
 	if err != nil {
@@ -190,55 +205,10 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	//consistently write "test" to socket until cancel is received
 
 	// Read file blocks until all bytes are received.
-	bytesRead := int64(0)
-	fiBuf := make([]byte, 4096) //TODO: allow for changes in the buf size, or oh no... CONGESTION CONTROL ACK ACK ACK(geddit? :P)
-
-	//listen for messages on downloadsocket in a different goroutine
-	go func() {
-		for {
-			_, message, err := socket.conn.ReadMessage()
-			fmt.Println("Received message: ", string(message))
-			if err != nil {
-				socket.sendMessage(400, ("Error receiving file ACK: " + err.Error()))
-				return
-			}
-			if string(message) == "CANCEL" {
-				socket.sendMessage(200, ("Download canceled"))
-				//remove downloadid from active reads
-				delete(a.fsActiveReads, downloadId)
-				return
-			}
-		}
-	}()
+	bytesRead := int64(filePath.ContinueFrom)
+	fiBuf := make([]byte, 4096)
 
 	for {
-		// mt, message, err := socket.conn.ReadMessage()//TODO: this is blocking, implement a different channel/use existing ctrl?
-		// if err != nil {
-		// 	socket.sendStatus(400, "Error receiving file ACK: "+err.Error())
-		// 	return
-		// }
-		// if mt == websocket.TextMessage {
-		// 	if string(message) == "CANCEL" {
-		// 		socket.sendStatus(200, "Download canceled")
-		// 		//remove downloadid from active reads
-		// 		delete(a.fsActiveReads, downloadId)
-		// 		return
-		// 	} else if strings.HasPrefix(string(message), "SKIPTO") {
-		// 		//if message begins with SKIPTO, skip to that point
-		// 		skipIndex, err := strconv.ParseInt(strings.TrimPrefix(string(message), "SKIPTO"), 10, 64)
-		// 		if err != nil {
-		// 			socket.sendStatus(400, "Bad skip position: "+err.Error())
-		// 		}
-		// 		if skipIndex > fileSize {
-		// 			socket.sendStatus(400, "Bad skip position: greater than file length")
-		// 		}
-		// 		bytesRead = skipIndex
-		// 	}
-		// } else {
-		// 	socket.sendStatus(400, "Invalid ctrl block received")
-		// 	return
-		// }
-
 		// shrink fibuf if we are at the end of the file
 		if bytesRead+int64(len(fiBuf)) > fileSize {
 			fiBuf = make([]byte, fileSize-bytesRead)
@@ -260,7 +230,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if err == io.EOF || bytesRead == fileSize {
+		if err == io.EOF || bytesRead == fileSize { //TODO: timeout if no response from client
 			fileHandle.Close()
 			break
 		}
@@ -272,7 +242,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	successObj := struct {
 		DidSucceed bool   `json:"didSucceed"`
 		FileName   string `json:"fileName"`
-	}{DidSucceed: true, FileName: filePath}
+	}{DidSucceed: true, FileName: filePath.Filename}
 
 	socket.sendMessage(200, successObj)
 }
