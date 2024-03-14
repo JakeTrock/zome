@@ -11,34 +11,37 @@ import (
 	"github.com/lucsky/cuid"
 )
 
-func (a *App) PutObjectRoute(wc wsConn, request Request, originKey string) {
+func (a *App) PutObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct { // TODO: add forcedomain(also should we cache global ACLs?)
-		FileName     string `json:"filename"` //TODO: change filename to key
-		FileSize     int64  `json:"filesize"`
-		Tagging      string `json:"tagging"`
-		OverridePath string `json:"overridePath"`
+		Request
+		Data struct {
+			FileName     string `json:"filename"` //TODO: change filename to key
+			FileSize     int64  `json:"filesize"`
+			Tagging      string `json:"tagging"`
+			OverridePath string `json:"overridePath"`
+		} `json:"data"`
 	}
 	var successObj = struct {
 		DidSucceed bool   `json:"didSucceed"`
 		UploadId   string `json:"uploadId"` //the id which you will open a socket to in /upload/:id
 	}{DidSucceed: false}
 
-	err := json.Unmarshal(request.Data, &requestBody)
+	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
 		wc.sendMessage(400, (err.Error()))
 	}
 
-	if requestBody.FileName == "" {
+	if requestBody.Data.FileName == "" {
 		wc.sendMessage(400, ("file name is required"))
 		return
 	}
 	//TODO: sanitize path, ensure not contains .., or isn't a dir
-	if requestBody.FileSize == 0 {
+	if requestBody.Data.FileSize == 0 {
 		wc.sendMessage(400, ("file size is required"))
 		return
 	}
 
-	key := path.Join(originKey, requestBody.FileName)
+	key := path.Join(originKey, requestBody.Data.FileName)
 	//check file not exists
 	writePath := path.Join(a.operatingPath, "zome", "data", key)
 	_, err = os.Stat(writePath)
@@ -50,15 +53,15 @@ func (a *App) PutObjectRoute(wc wsConn, request Request, originKey string) {
 	randomId := cuid.New()
 
 	a.fsActiveWrites[randomId] = UploadHeader{
-		Filename: requestBody.FileName,
-		Size:     requestBody.FileSize,
+		Filename: requestBody.Data.FileName,
+		Size:     requestBody.Data.FileSize,
 	}
 
 	successObj.UploadId = randomId
 
 	metaObject := make(map[string]string)
-	if requestBody.Tagging != "" {
-		u, err := url.Parse("/?" + requestBody.Tagging)
+	if requestBody.Data.Tagging != "" {
+		u, err := url.Parse("/?" + requestBody.Data.Tagging)
 		if err != nil {
 			wc.sendMessage(400, ("error parsing tagging string"))
 			return
@@ -77,12 +80,12 @@ func (a *App) PutObjectRoute(wc wsConn, request Request, originKey string) {
 	}
 
 	origin := originKey
-	if request.ForceDomain != "" {
-		origin = request.ForceDomain
+	if requestBody.ForceDomain != "" {
+		origin = requestBody.ForceDomain
 	}
 
 	writeObject := make(map[string]string)
-	writeObject[requestBody.FileName] = string(metaObjJson)
+	writeObject[requestBody.Data.FileName] = string(metaObjJson)
 
 	a.secureAddLoop(writeObject, "33", origin, originKey)
 
@@ -92,9 +95,12 @@ func (a *App) PutObjectRoute(wc wsConn, request Request, originKey string) {
 	return
 }
 
-func (a *App) GetObjectRoute(wc wsConn, request Request, originKey string) {
+func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct {
-		Key string `json:"key"`
+		Request
+		Data struct {
+			Key string `json:"key"`
+		} `json:"data"`
 	}
 	var successObj = struct {
 		DidSucceed bool   `json:"didSucceed"`
@@ -102,18 +108,18 @@ func (a *App) GetObjectRoute(wc wsConn, request Request, originKey string) {
 		DownloadId string `json:"downloadId"`
 	}{DidSucceed: false}
 
-	err := json.Unmarshal(request.Data, &requestBody)
+	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
 		wc.sendMessage(400, (err.Error()))
 		return
 	}
 
-	if requestBody.Key == "" {
+	if requestBody.Data.Key == "" {
 		wc.sendMessage(400, ("key is required"))
 		return
 	}
 
-	key := path.Join(originKey, requestBody.Key)
+	key := path.Join(originKey, requestBody.Data.Key)
 	writePath := path.Join(a.operatingPath, "zome", "data", key)
 
 	_, err = os.Stat(writePath)
@@ -126,10 +132,10 @@ func (a *App) GetObjectRoute(wc wsConn, request Request, originKey string) {
 		return
 	}
 
-	metaObject, err := a.secureGetLoop([]string{requestBody.Key}, originKey, originKey)
+	metaObject, err := a.secureGetLoop([]string{requestBody.Data.Key}, originKey, originKey)
 	// metaObject, err := a.store.Get(a.ctx, ds.NewKey(requestBody.Key))
 	if err != nil {
-		wc.sendMessage(500, ("error getting metadata for key " + requestBody.Key + ": " + err.Error()))
+		wc.sendMessage(500, ("error getting metadata for key " + requestBody.Data.Key + ": " + err.Error()))
 		return
 	}
 	// metaJson := make(map[string]string)
@@ -140,35 +146,38 @@ func (a *App) GetObjectRoute(wc wsConn, request Request, originKey string) {
 
 	randomId := cuid.New()
 
-	a.fsActiveReads[randomId] = requestBody.Key
+	a.fsActiveReads[randomId] = requestBody.Data.Key
 
 	successObj.DidSucceed = true
-	successObj.MetaData = metaObject[requestBody.Key]
+	successObj.MetaData = metaObject[requestBody.Data.Key]
 	successObj.DownloadId = randomId
 	wc.sendMessage(200, successObj)
 	return
 }
 
-func (a *App) DeleteObjectRoute(wc wsConn, request Request, originKey string) {
+func (a *App) DeleteObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct {
-		Key string `json:"key"`
+		Request
+		Data struct {
+			Key string `json:"key"`
+		} `json:"data"`
 	}
 	var successObj = struct {
 		DidSucceed bool `json:"didSucceed"`
 	}{DidSucceed: false}
 
-	err := json.Unmarshal(request.Data, &requestBody)
+	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
 		wc.sendMessage(400, (err.Error()))
 		return
 	}
 
-	if requestBody.Key == "" {
+	if requestBody.Data.Key == "" {
 		wc.sendMessage(400, ("key is required"))
 		return
 	}
 
-	key := path.Join(originKey, requestBody.Key)
+	key := path.Join(originKey, requestBody.Data.Key)
 	writePath := path.Join(a.operatingPath, "zome", "data", key)
 
 	err = os.Remove(writePath)

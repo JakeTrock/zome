@@ -35,7 +35,9 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		host := getOriginSegregator(r)
 
 		// Decode the message
-		var request Request
+		var request struct {
+			Action string `json:"action"`
+		}
 		err = json.Unmarshal(message, &request)
 		if err != nil {
 			logger.Error(err)
@@ -45,29 +47,29 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		// DB routes
 		switch request.Action {
 		case "db-add":
-			a.handleAddRequest(socket, request, host)
+			a.handleAddRequest(socket, message, host)
 		case "db-get":
-			a.handleGetRequest(socket, request, host)
+			a.handleGetRequest(socket, message, host)
 		case "db-delete":
-			a.handleDeleteRequest(socket, request, host)
+			a.handleDeleteRequest(socket, message, host)
 		case "db-setGlobalWrite":
-			a.setGlobalWrite(socket, request, host)
+			a.setGlobalWrite(socket, message, host)
 		case "db-getGlobalWrite":
-			a.getGlobalWrite(socket, request, host)
+			a.getGlobalWrite(socket, message, host)
 		case "db-removeOrigin":
-			a.removeOrigin(socket, request, host)
+			a.removeOrigin(socket, message, host)
 
 		// FS routes
 		case "fs-putObject":
-			a.PutObjectRoute(socket, request, host)
+			a.PutObjectRoute(socket, message, host)
 		case "fs-getObject":
-			a.GetObjectRoute(socket, request, host)
+			a.GetObjectRoute(socket, message, host)
 		case "fs-deleteObject":
-			a.DeleteObjectRoute(socket, request, host)
+			a.DeleteObjectRoute(socket, message, host)
 
 		// ADmin routes
 		case "ad-getServerStats":
-			a.getServerStats(socket, request, host)
+			a.getServerStats(socket, message, host)
 		//TODO: admin routes for blocking origins, fs restrictions
 		default:
 			// logger.Error("Invalid action")
@@ -91,7 +93,7 @@ func DirSize(path string) (int64, error) {
 	return size, err
 }
 
-func (a *App) getServerStats(response wsConn, _ Request, _ string) ([]byte, error) { //TODO: consider security of this route
+func (a *App) getServerStats(response wsConn, _ []byte, _ string) ([]byte, error) { //TODO: consider security of this route
 	type returnMessage struct {
 		Stats map[string]string `json:"stats"`
 	}

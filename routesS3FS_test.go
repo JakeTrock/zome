@@ -71,12 +71,9 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 		Tagging:  urlQuerystring,
 	}
 
-	marshalledRequest, err := json.Marshal(fileRequest)
-	assert.NoError(t, err)
-
 	err = controlSocket.WriteJSON(Request{
 		Action: "fs-putObject",
-		Data:   marshalledRequest,
+		Data:   fileRequest,
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
@@ -195,14 +192,11 @@ func TestFileSeek(t *testing.T) {
 		Tagging:  urlQuerystring,
 	}
 
-	marshalledRequest, err := json.Marshal(fileRequest)
-	assert.NoError(t, err)
-
 	controlSocket := establishControlSocket()
 
 	err = controlSocket.WriteJSON(Request{
 		Action: "fs-putObject",
-		Data:   marshalledRequest,
+		Data:   fileRequest,
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
@@ -305,14 +299,11 @@ func TestFileCancel(t *testing.T) {
 		Tagging:  urlQuerystring,
 	}
 
-	marshalledRequest, err := json.Marshal(fileRequest)
-	assert.NoError(t, err)
-
 	controlSocket := establishControlSocket()
 
 	err = controlSocket.WriteJSON(Request{
 		Action: "fs-putObject",
-		Data:   marshalledRequest,
+		Data:   fileRequest,
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {
@@ -393,11 +384,9 @@ func TestFileDelete(t *testing.T) {
 		Key: fileName,
 	}
 
-	marshalledDelRequest, err := json.Marshal(fileDelRequest)
-	assert.NoError(t, err)
 	err = controlSocket.WriteJSON(Request{
 		Action: "fs-deleteObject",
-		Data:   marshalledDelRequest,
+		Data:   fileDelRequest,
 	})
 	assert.NoError(t, err)
 	unmarshalledDelete := struct {
@@ -436,12 +425,9 @@ func TestDownload(t *testing.T) {
 		Key: downloadTarget,
 	}
 
-	marshalledRequest, err := json.Marshal(fileRequest)
-	assert.NoError(t, err)
-
-	err = controlSocket.WriteJSON(Request{
+	err := controlSocket.WriteJSON(Request{
 		Action: "fs-getObject",
-		Data:   marshalledRequest,
+		Data:   fileRequest,
 	})
 	assert.NoError(t, err)
 	unmarshalledResponse := struct {

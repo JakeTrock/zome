@@ -6,7 +6,7 @@ import (
 	ds "github.com/ipfs/go-datastore"
 )
 
-func (a *App) removeOrigin(wc wsConn, _ Request, selfOrigin string) {
+func (a *App) removeOrigin(wc wsConn, _ []byte, selfOrigin string) {
 	type successReturn struct {
 		DidSucceed bool `json:"didSucceed"`
 	}
@@ -26,18 +26,20 @@ func (a *App) removeOrigin(wc wsConn, _ Request, selfOrigin string) {
 	return
 }
 
-func (a *App) setGlobalWrite(wc wsConn, request Request, selfOrigin string) {
+func (a *App) setGlobalWrite(wc wsConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Value string `json:"value"`
+		Request
+		Data struct {
+			Value bool `json:"value"`
+		} `json:"data"`
 	}
-	err := json.Unmarshal(request.Data, &requestBody)
+
+	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
-
 		wc.sendMessage(400, (err.Error()))
-		return
 	}
 
-	if requestBody.Value != "true" && requestBody.Value != "false" {
+	if requestBody.Data.Value != true && requestBody.Data.Value != false {
 		wc.sendMessage(400, ("invalid request body: value must be true or false"))
 		return
 	}
@@ -52,9 +54,8 @@ func (a *App) setGlobalWrite(wc wsConn, request Request, selfOrigin string) {
 
 	origin := selfOrigin + "]-GW"
 
-	enableBool := requestBody.Value == "true"
 	enableByte := []byte{0}
-	if enableBool {
+	if requestBody.Data.Value {
 		enableByte = []byte{1}
 	}
 
@@ -67,28 +68,31 @@ func (a *App) setGlobalWrite(wc wsConn, request Request, selfOrigin string) {
 	}
 
 	wc.sendMessage(200, success)
-	return
 }
 
-func (a *App) handleAddRequest(wc wsConn, request Request, selfOrigin string) { //TODO: switch to using badger write
+func (a *App) handleAddRequest(wc wsConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		ACL    string            `json:"acl"`
-		Values map[string]string `json:"values"`
+		Action      string `json:"action"`
+		ForceDomain string `json:"forceDomain"`
+		Data        struct {
+			ACL    string            `json:"acl"`
+			Values map[string]string `json:"values"`
+		} `json:"data"`
 	}
-	err := json.Unmarshal(request.Data, &requestBody)
+
+	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
 		wc.sendMessage(400, (err.Error()))
-		return
 	}
 
 	//validate request
-	if len(requestBody.Values) == 0 {
+	if len(requestBody.Data.Values) == 0 {
 		wc.sendMessage(400, ("invalid request body: no values provided"))
 		return
 	}
 
-	if requestBody.ACL == "" {
-		requestBody.ACL = "11"
+	if requestBody.Data.ACL == "" {
+		requestBody.Data.ACL = "11"
 	}
 
 	type successReturn struct {
@@ -96,11 +100,11 @@ func (a *App) handleAddRequest(wc wsConn, request Request, selfOrigin string) { 
 	}
 
 	var origin = selfOrigin
-	if request.ForceDomain != "" {
-		origin = request.ForceDomain
+	if requestBody.ForceDomain != "" {
+		origin = requestBody.ForceDomain
 	}
 
-	successResult, err := a.secureAddLoop(requestBody.Values, requestBody.ACL, origin, selfOrigin)
+	successResult, err := a.secureAddLoop(requestBody.Data.Values, requestBody.Data.ACL, origin, selfOrigin)
 	if err != nil {
 
 		wc.sendMessage(500, (err.Error()))
@@ -115,17 +119,21 @@ func (a *App) handleAddRequest(wc wsConn, request Request, selfOrigin string) { 
 	return
 }
 
-func (a *App) handleGetRequest(wc wsConn, request Request, selfOrigin string) {
+func (a *App) handleGetRequest(wc wsConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Values []string `json:"values"`
-	}
-	err := json.Unmarshal(request.Data, &requestBody)
-	if err != nil {
-		wc.sendMessage(400, (err.Error()))
-		return
+		Action      string `json:"action"`
+		ForceDomain string `json:"forceDomain"`
+		Data        struct {
+			Values []string `json:"values"`
+		} `json:"data"`
 	}
 
-	if len(requestBody.Values) == 0 {
+	err := json.Unmarshal(request, &requestBody)
+	if err != nil {
+		wc.sendMessage(400, (err.Error()))
+	}
+
+	if len(requestBody.Data.Values) == 0 {
 		wc.sendMessage(400, ("invalid request body: no keys provided"))
 		return
 	}
@@ -136,11 +144,11 @@ func (a *App) handleGetRequest(wc wsConn, request Request, selfOrigin string) {
 	}
 
 	var origin = selfOrigin
-	if request.ForceDomain != "" {
-		origin = request.ForceDomain
+	if requestBody.ForceDomain != "" {
+		origin = requestBody.ForceDomain
 	}
 
-	getResult, err := a.secureGetLoop(requestBody.Values, origin, selfOrigin)
+	getResult, err := a.secureGetLoop(requestBody.Data.Values, origin, selfOrigin)
 	if err != nil {
 		wc.sendMessage(500, (err.Error()))
 		return
@@ -157,17 +165,21 @@ func (a *App) handleGetRequest(wc wsConn, request Request, selfOrigin string) {
 	return
 }
 
-func (a *App) handleDeleteRequest(wc wsConn, request Request, selfOrigin string) {
+func (a *App) handleDeleteRequest(wc wsConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Values []string `json:"values"`
-	}
-	err := json.Unmarshal(request.Data, &requestBody)
-	if err != nil {
-		wc.sendMessage(400, (err.Error()))
-		return
+		Action      string `json:"action"`
+		ForceDomain string `json:"forceDomain"`
+		Data        struct {
+			Values []string `json:"values"`
+		} `json:"data"`
 	}
 
-	if len(requestBody.Values) == 0 {
+	err := json.Unmarshal(request, &requestBody)
+	if err != nil {
+		wc.sendMessage(400, (err.Error()))
+	}
+
+	if len(requestBody.Data.Values) == 0 {
 		wc.sendMessage(400, ("invalid request body: no keys provided"))
 		return
 	}
@@ -177,13 +189,13 @@ func (a *App) handleDeleteRequest(wc wsConn, request Request, selfOrigin string)
 	}
 
 	success := successReturn{
-		DidSucceed: make(map[string]bool, len(requestBody.Values)),
+		DidSucceed: make(map[string]bool, len(requestBody.Data.Values)),
 	}
 
-	for _, k := range requestBody.Values {
+	for _, k := range requestBody.Data.Values {
 		origin := selfOrigin + "-" + k
-		if request.ForceDomain != "" {
-			origin = request.ForceDomain + "-" + k
+		if requestBody.ForceDomain != "" {
+			origin = requestBody.ForceDomain + "-" + k
 		}
 		// Retrieve the value from the store
 		value, err := a.store.Get(a.ctx, ds.NewKey(origin))
@@ -211,7 +223,7 @@ func (a *App) handleDeleteRequest(wc wsConn, request Request, selfOrigin string)
 	return
 }
 
-func (a *App) getGlobalWrite(wc wsConn, _ Request, selfOrigin string) {
+func (a *App) getGlobalWrite(wc wsConn, _ []byte, selfOrigin string) {
 	gwrite, err := a.globalWriteAbstract(selfOrigin)
 	if err != nil {
 		wc.sendMessage(500, (err.Error()))

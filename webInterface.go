@@ -38,7 +38,7 @@ func (a *App) initWeb() {
 type Request struct {
 	Action      string `json:"action"`
 	ForceDomain string `json:"forceDomain"`
-	Data        []byte `json:"data"`
+	Data        any    `json:"data"`
 }
 
 type ResBody struct {

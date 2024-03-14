@@ -29,7 +29,6 @@ func TestHandleRemoveOrigin(t *testing.T) {
 	//make removeorigin request to controlSocket
 	err := controlSocket.WriteJSON(Request{
 		Action: "db-removeOrigin",
-		Data:   []byte(`{}`),
 	})
 	assert.NoError(t, err)
 	//get response
@@ -74,17 +73,12 @@ func TestSetGlobalWrite(t *testing.T) {
 		} `json:"status"`
 	}
 
-	setGlobalWriteTrue := Request{
-		Data: []byte(`{"value":"true"}`),
-	}
-	setGlobalWriteFalse := Request{
-		Data: []byte(`{"value":"false"}`),
-	}
-
 	//set global write true on controlSocket
 	err := controlSocket.WriteJSON(Request{
 		Action: "db-setGlobalWrite",
-		Data:   setGlobalWriteTrue.Data,
+		Data: struct {
+			Value bool `json:"value"`
+		}{Value: true},
 	})
 	assert.NoError(t, err)
 
@@ -96,7 +90,6 @@ func TestSetGlobalWrite(t *testing.T) {
 	// now check if the value was set
 	err = controlSocket.WriteJSON(Request{
 		Action: "db-getGlobalWrite",
-		Data:   []byte(`{}`),
 	})
 	assert.NoError(t, err)
 	unmarshalledGW := gwStruct{}
@@ -108,7 +101,9 @@ func TestSetGlobalWrite(t *testing.T) {
 	// now check false
 	err = controlSocket.WriteJSON(Request{
 		Action: "db-setGlobalWrite",
-		Data:   setGlobalWriteFalse.Data,
+		Data: struct {
+			Value bool `json:"value"`
+		}{Value: false},
 	})
 	assert.NoError(t, err)
 
@@ -119,7 +114,6 @@ func TestSetGlobalWrite(t *testing.T) {
 	// now check if the value was set
 	err = controlSocket.WriteJSON(Request{
 		Action: "db-getGlobalWrite",
-		Data:   []byte(`{}`),
 	})
 	assert.NoError(t, err)
 	unmarshalledGW = gwStruct{}
@@ -143,14 +137,12 @@ func TestHandleGetRequest(t *testing.T) {
 		} `json:"status"`
 	}
 
-	requestBody := struct {
-		Values []string `json:"values"`
-	}{
-		Values: randomList.values,
-	}
-	requestData, _ := json.Marshal(requestBody)
 	getRequest := Request{
-		Data: requestData,
+		Data: struct {
+			Values []string `json:"values"`
+		}{
+			Values: randomList.values,
+		},
 	}
 
 	expectedSuccess := getStruct{
@@ -192,14 +184,12 @@ func TestHandleDeleteRequest(t *testing.T) {
 
 	controlSocket := establishControlSocket()
 
-	requestBody := struct {
-		Values []string `json:"values"`
-	}{
-		Values: randomList.values,
-	}
-	requestData, _ := json.Marshal(requestBody)
 	request := Request{
-		Data: requestData,
+		Data: struct {
+			Values []string `json:"values"`
+		}{
+			Values: randomList.values,
+		},
 	}
 
 	type deleteStruct struct {
@@ -251,8 +241,6 @@ func addGeneralized(t *testing.T, randomKeyValuePairs keyValueReq) (map[string]b
 
 	controlSocket := establishControlSocket()
 
-	requestData, _ := json.Marshal(requestBody)
-
 	successKvp := map[string]bool{}
 	for k := range randomKeyValuePairs.values {
 		successKvp[k] = true
@@ -277,7 +265,7 @@ func addGeneralized(t *testing.T, randomKeyValuePairs keyValueReq) (map[string]b
 	//make add request to controlSocket
 	err := controlSocket.WriteJSON(Request{
 		Action: "db-add",
-		Data:   requestData,
+		Data:   requestBody,
 	})
 	// successJson, err := app.handleAddRequest(nil, request, originKey)
 	assert.NoError(t, err)
