@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strings"
 
 	ds "github.com/ipfs/go-datastore"
 	"github.com/lucsky/cuid"
@@ -15,7 +16,7 @@ func (a *App) PutObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct { // TODO: add forcedomain(also should we cache global ACLs?)
 		Request
 		Data struct {
-			FileName     string `json:"filename"` //TODO: change filename to key
+			FileName     string `json:"filename"`
 			FileSize     int64  `json:"filesize"`
 			Tagging      string `json:"tagging"`
 			OverridePath string `json:"overridePath"`
@@ -35,6 +36,13 @@ func (a *App) PutObjectRoute(wc wsConn, request []byte, originKey string) {
 		wc.sendMessage(400, ("file name is required"))
 		return
 	}
+
+	// Ensure file path doesn't contain ".."
+	if !legalFileName(requestBody.Data.FileName) {
+		wc.sendMessage(400, ("invalid file path"))
+		return
+	}
+
 	//TODO: sanitize path, ensure not contains .., or isn't a dir
 	if requestBody.Data.FileSize == 0 {
 		wc.sendMessage(400, ("file size is required"))
@@ -95,6 +103,12 @@ func (a *App) PutObjectRoute(wc wsConn, request []byte, originKey string) {
 	return
 }
 
+func legalFileName(path string) bool {
+	return strings.Contains(path, "..") ||
+		strings.Contains(path, "/") ||
+		strings.Contains(path, "~")
+}
+
 func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct {
 		Request
@@ -116,7 +130,12 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 	}
 
 	if requestBody.Data.FileName == "" {
-		wc.sendMessage(400, ("key is required"))
+		wc.sendMessage(400, ("filename is required"))
+		return
+	}
+
+	if !legalFileName(requestBody.Data.FileName) {
+		wc.sendMessage(400, ("invalid file path"))
 		return
 	}
 
@@ -177,7 +196,12 @@ func (a *App) DeleteObjectRoute(wc wsConn, request []byte, originKey string) {
 	}
 
 	if requestBody.Data.FileName == "" {
-		wc.sendMessage(400, ("key is required"))
+		wc.sendMessage(400, ("filename is required"))
+		return
+	}
+
+	if !legalFileName(requestBody.Data.FileName) {
+		wc.sendMessage(400, ("invalid file path"))
 		return
 	}
 

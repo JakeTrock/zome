@@ -259,7 +259,7 @@ func TestFileSeek(t *testing.T) {
 			assert.NoError(t, err)
 			assert.True(t, msgJson.Status.DidSucceed)
 			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
-			// assert.Equal(t, fileRequest.FileSize, statusUnmarshalled.BytesRead)//TODO: doesn't match
+			assert.Equal(t, fileRequest.FileSize, int64(111853)) // msgJson.Status.BytesRead
 		}
 
 		// assert.Equal(t, []byte("{\"pct\":"+fmt.Sprint((((i*chunkSize)*100)/fileRequest.FileSize)+1)+"}"), msg)
@@ -406,8 +406,6 @@ func TestFileDelete(t *testing.T) {
 	_, err = os.Stat(path.Join("testPath", "zome", "data", originSeg, fileName))
 	assert.True(t, os.IsNotExist(err))
 }
-
-//TODO: complete download(and its cancel/skipto)
 
 func TestDownload(t *testing.T) {
 	controlSocket := establishControlSocket()

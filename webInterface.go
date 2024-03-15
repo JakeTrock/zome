@@ -57,7 +57,6 @@ type wsConn struct {
 }
 
 func (wsc wsConn) sendMessage(code int, status any) {
-	fmt.Println(status) //TODO: remove
 	if code == 500 {
 		fmt.Println("ECODE: ", status)
 		logger.Error(status)
