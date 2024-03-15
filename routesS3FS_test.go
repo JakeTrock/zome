@@ -379,9 +379,9 @@ func TestFileDelete(t *testing.T) {
 
 	// send delete
 	fileDelRequest := struct {
-		Key string `json:"key"`
+		FileName string `json:"fileName"`
 	}{
-		Key: fileName,
+		FileName: fileName,
 	}
 
 	err = controlSocket.WriteJSON(Request{
@@ -420,9 +420,9 @@ func TestDownload(t *testing.T) {
 	// make download folder
 
 	fileRequest := struct {
-		Key string `json:"key"`
+		FileName string `json:"fileName"`
 	}{
-		Key: downloadTarget,
+		FileName: downloadTarget,
 	}
 
 	err := controlSocket.WriteJSON(Request{
@@ -494,7 +494,7 @@ func TestDownload(t *testing.T) {
 			err = json.Unmarshal(chunk, &msgJson)
 			assert.NoError(t, err)
 			assert.True(t, msgJson.Status.DidSucceed)
-			assert.Equal(t, fileRequest.Key, msgJson.Status.FileName)
+			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
 			break
 		}
 
@@ -526,9 +526,9 @@ func TestDownloadCancel(t *testing.T) {
 	// make download folder
 
 	fileRequest := struct {
-		Key string `json:"key"`
+		FileName string `json:"fileName"`
 	}{
-		Key: downloadTarget,
+		FileName: downloadTarget,
 	}
 
 	err := controlSocket.WriteJSON(Request{
@@ -610,7 +610,7 @@ func TestDownloadCancel(t *testing.T) {
 			err = json.Unmarshal(chunk, &msgJson)
 			assert.NoError(t, err)
 			assert.True(t, msgJson.Status.DidSucceed)
-			assert.Equal(t, fileRequest.Key, msgJson.Status.FileName)
+			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
 			break
 		}
 
@@ -643,10 +643,10 @@ func TestDownloadFromPoint(t *testing.T) {
 	// make download folder
 
 	fileRequest := struct {
-		Key          string `json:"key"`
+		FileName     string `json:"fileName"`
 		ContinueFrom int64  `json:"continueFrom"`
 	}{
-		Key:          downloadTarget,
+		FileName:     downloadTarget,
 		ContinueFrom: 4096,
 	}
 
@@ -719,7 +719,7 @@ func TestDownloadFromPoint(t *testing.T) {
 			err = json.Unmarshal(chunk, &msgJson)
 			assert.NoError(t, err)
 			assert.True(t, msgJson.Status.DidSucceed)
-			assert.Equal(t, fileRequest.Key, msgJson.Status.FileName)
+			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
 			break
 		}
 

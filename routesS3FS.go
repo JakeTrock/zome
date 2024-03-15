@@ -99,7 +99,7 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct {
 		Request
 		Data struct {
-			Key          string `json:"key"`
+			FileName     string `json:"fileName"`
 			ContinueFrom int64  `json:"continueFrom"`
 		} `json:"data"`
 	}
@@ -115,12 +115,12 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 		return
 	}
 
-	if requestBody.Data.Key == "" {
+	if requestBody.Data.FileName == "" {
 		wc.sendMessage(400, ("key is required"))
 		return
 	}
 
-	key := path.Join(originKey, requestBody.Data.Key)
+	key := path.Join(originKey, requestBody.Data.FileName)
 	writePath := path.Join(a.operatingPath, "zome", "data", key)
 
 	_, err = os.Stat(writePath)
@@ -133,10 +133,10 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 		return
 	}
 
-	metaObject, err := a.secureGetLoop([]string{requestBody.Data.Key}, originKey, originKey)
-	// metaObject, err := a.store.Get(a.ctx, ds.NewKey(requestBody.Key))
+	metaObject, err := a.secureGetLoop([]string{requestBody.Data.FileName}, originKey, originKey)
+	// metaObject, err := a.store.Get(a.ctx, ds.NewKey(requestBody.FileName))
 	if err != nil {
-		wc.sendMessage(500, ("error getting metadata for key " + requestBody.Data.Key + ": " + err.Error()))
+		wc.sendMessage(500, ("error getting metadata for key " + requestBody.Data.FileName + ": " + err.Error()))
 		return
 	}
 	// metaJson := make(map[string]string)
@@ -148,12 +148,12 @@ func (a *App) GetObjectRoute(wc wsConn, request []byte, originKey string) {
 	randomId := cuid.New()
 
 	a.fsActiveReads[randomId] = DownloadHeader{
-		Filename:     requestBody.Data.Key,
+		Filename:     requestBody.Data.FileName,
 		ContinueFrom: requestBody.Data.ContinueFrom,
 	}
 
 	successObj.DidSucceed = true
-	successObj.MetaData = metaObject[requestBody.Data.Key]
+	successObj.MetaData = metaObject[requestBody.Data.FileName]
 	successObj.DownloadId = randomId
 	wc.sendMessage(200, successObj)
 	return
@@ -163,7 +163,7 @@ func (a *App) DeleteObjectRoute(wc wsConn, request []byte, originKey string) {
 	var requestBody struct {
 		Request
 		Data struct {
-			Key string `json:"key"`
+			FileName string `json:"fileName"`
 		} `json:"data"`
 	}
 	var successObj = struct {
@@ -176,12 +176,12 @@ func (a *App) DeleteObjectRoute(wc wsConn, request []byte, originKey string) {
 		return
 	}
 
-	if requestBody.Data.Key == "" {
+	if requestBody.Data.FileName == "" {
 		wc.sendMessage(400, ("key is required"))
 		return
 	}
 
-	key := path.Join(originKey, requestBody.Data.Key)
+	key := path.Join(originKey, requestBody.Data.FileName)
 	writePath := path.Join(a.operatingPath, "zome", "data", key)
 
 	err = os.Remove(writePath)
