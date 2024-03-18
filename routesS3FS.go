@@ -369,6 +369,7 @@ func (a *App) getGlobalFACL(wc wsConn, _ []byte, selfOrigin string) {
 		wc.sendMessage(500, fmtError("error getting global FACL "+err.Error()))
 		return
 	}
+
 	successObj := struct {
 		GlobalFsAccess bool `json:"globalFsAccess"`
 	}{

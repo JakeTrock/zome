@@ -60,11 +60,11 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 			a.removeOrigin(socket, message, host)
 
 		// FS routes
-		case "fs-putObject": //TODO: drop the "object"
+		case "fs-put":
 			a.putObjectRoute(socket, message, host)
-		case "fs-getObject":
+		case "fs-get":
 			a.getObjectRoute(socket, message, host)
-		case "fs-deleteObject":
+		case "fs-delete":
 			a.deleteObjectRoute(socket, message, host)
 		case "fs-getGlobalWrite":
 			a.getGlobalFACL(socket, message, host)
