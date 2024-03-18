@@ -82,7 +82,7 @@ func sanitizeACL(aclString string) (string, error) {
 	return aclString, nil
 }
 
-func checkACL(acl, operation string, domainSource, domainTarget string) bool {
+func checkACL(acl, operation, domainSource, domainTarget string) bool { //TODO: this needs to be debugged, I think it's working in reverse
 	// operation is a number between 1 and 7
 	opRegex := "^[1-3]{1}$"
 	if !regexp.MustCompile(opRegex).MatchString(operation) {
@@ -103,7 +103,14 @@ func checkACL(acl, operation string, domainSource, domainTarget string) bool {
 			logger.Error(err)
 			return false
 		}
-		return operationNum >= int(acl[aclPos])
+
+		acstr := acl[aclPos : aclPos+1]
+		aclNum, err := strconv.Atoi(acstr)
+		if err != nil {
+			logger.Error(err)
+			return false
+		}
+		return operationNum <= aclNum
 	}
 }
 

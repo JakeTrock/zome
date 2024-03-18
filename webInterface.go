@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"runtime/debug"
@@ -44,7 +43,6 @@ type Request struct {
 type ResBody struct {
 	Code   int `json:"code,omitempty"`
 	Status any `json:"status,omitempty"`
-	Error  any `json:"error,omitempty"`
 }
 
 // type JSONBody struct {
@@ -52,21 +50,28 @@ type ResBody struct {
 // 	Status interface{} `json:"status,omitempty"`
 // }
 
+type eResp struct {
+	DidSucceed bool   `json:"didSucceed"`
+	Error      string `json:"error"`
+}
+
+func fmtError(err string) eResp {
+	return eResp{
+		DidSucceed: false,
+		Error:      err,
+	}
+}
+
 type wsConn struct {
 	conn *websocket.Conn
 }
 
 func (wsc wsConn) sendMessage(code int, status any) {
 	if code == 500 {
-		fmt.Println("ECODE: ", status)
 		logger.Error(status)
 	}
 	res := ResBody{Code: code}
-	if code != 200 {
-		res.Error = status
-	} else {
-		res.Status = status
-	}
+	res.Status = status
 	msg, err := json.Marshal(res)
 	if err != nil {
 		logger.Error(err)
@@ -96,7 +101,7 @@ func (wsc wsConn) sendPct(pct int) {
 
 func (wsc wsConn) killSocket() {
 	if r := recover(); r != nil {
-		fmt.Printf("Recovered from crash: %v", r)
+		logger.Infof("Recovered from crash: %v", r)
 		debug.PrintStack()
 	}
 	if wsc.conn == nil {
@@ -106,7 +111,7 @@ func (wsc wsConn) killSocket() {
 	if err != nil {
 		logger.Error(err)
 	}
-	fmt.Println("Closing socket", time.Now())
+	logger.Info("Closing socket", time.Now())
 	wsc.conn.Close()
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	ds "github.com/ipfs/go-datastore"
 )
 
 var app = &App{}
@@ -27,6 +28,15 @@ func setupSuite() {
 		go func() {
 			app.initWeb()
 		}()
+		//enable fs and s3 global write
+		err := app.store.Put(app.ctx, ds.NewKey(originBase+"]-FACL"), []byte{1})
+		if err != nil {
+			logger.Error(err)
+		}
+		err = app.store.Put(app.ctx, ds.NewKey(originBase+"]-GW"), []byte{1})
+		if err != nil {
+			logger.Error(err)
+		}
 	}
 }
 
@@ -99,3 +109,45 @@ func generateRandomStructs() (keyValueReq, listReq, singleReq) {
 
 	return randomKeyValuePairs, randomList, randomSingle
 }
+
+// func dumpDb(a *App) {
+// 	fmt.Println("Dumping db")
+// 	//get all decrypted values of badger datastore
+// 	err := a.store.DB.View(func(txn *badger.Txn) error {
+// 		opts := badger.DefaultIteratorOptions
+// 		opts.PrefetchValues = true
+// 		it := txn.NewIterator(opts)
+// 		defer it.Close()
+
+// 		for it.Rewind(); it.Valid(); it.Next() {
+// 			item := it.Item()
+// 			kCopyTo := make([]byte, len(item.Key()))
+// 			item.KeyCopy(kCopyTo)
+// 			fmt.Println("key: " + string(kCopyTo))
+// 			err := item.Value(func(val []byte) error {
+// 				// Decrypt the value here
+// 				decryptedValue, err := AesGCMDecrypt(a.dbCryptKey, val[2:])
+// 				if err != nil {
+// 					logger.Error(err)
+// 					return err
+// 				}
+
+// 				// Use the decrypted value
+// 				fmt.Println("value: " + string(decryptedValue))
+
+// 				return nil
+// 			})
+// 			if err != nil {
+// 				logger.Error(err)
+// 				return err
+// 			}
+// 		}
+
+// 		return nil
+// 	})
+
+// 	if err != nil {
+// 		logger.Error(err)
+// 		return
+// 	}
+// }

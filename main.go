@@ -28,7 +28,7 @@ import (
 
 const name = "zome"
 
-var logger = logging.Logger("globaldb")
+var logger = logging.Logger("globalLogs")
 
 type App struct {
 	ctx           context.Context
@@ -51,10 +51,10 @@ type App struct {
 func initPath(overridePath string) string {
 	var configFilePath string
 	if overridePath != "" {
-		fmt.Println("Using config path override")
+		logger.Info("Using config path override")
 		configFilePath = overridePath
 		statpath, err := os.Stat(overridePath)
-		print(statpath)
+		logger.Info(statpath)
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(filepath.Join(overridePath, name), 0755)
 			if err != nil {
@@ -65,7 +65,7 @@ func initPath(overridePath string) string {
 			logger.Fatal(err)
 		}
 	} else {
-		fmt.Println("Using default config path")
+		logger.Info("Using default config path")
 		configFilePath = filepath.Join(xdg.ConfigHome, name)
 	}
 	return configFilePath
@@ -78,13 +78,13 @@ func retrievePrivateKey(store *badger.Datastore, ctx context.Context) crypto.Pri
 	if err != nil && err != ds.ErrNotFound {
 		logger.Fatal(err)
 	} else if v != nil {
-		println("priv exists")
+		logger.Info("priv exists")
 		priv, err = crypto.UnmarshalPrivateKey(v)
 		if err != nil {
 			logger.Fatal(err)
 		}
 	} else {
-		println("priv doesn't exist")
+		logger.Info("priv doesn't exist")
 		priv, _, err = crypto.GenerateKeyPair(crypto.Ed25519, 1)
 		if err != nil {
 			logger.Fatal(err)
@@ -199,7 +199,6 @@ func main() {
 	flag.Parse()
 	if *help {
 		fmt.Println("zome under construction")
-		fmt.Println()
 		flag.PrintDefaults()
 		return
 	}
@@ -213,10 +212,10 @@ func main() {
 	app.initWeb()
 
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
-		fmt.Println("Running in daemon mode")
+		logger.Info("Running in daemon mode")
 		go func() {
 			for {
-				fmt.Printf("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeers(app.host)))
+				logger.Infof("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeers(app.host)))
 				time.Sleep(10 * time.Second)
 			}
 		}()

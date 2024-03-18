@@ -1,16 +1,21 @@
 package main
 
-import ds "github.com/ipfs/go-datastore"
+import (
+	"fmt"
 
-func (a *App) globalWriteAbstract(origin string) (bool, error) {
-	selfOrigin := origin + "]-GW"
+	ds "github.com/ipfs/go-datastore"
+)
+
+// allow/disallow adding values to a domain without said value there yet(meaning no acl would exist)
+func (a *App) globalWriteAbstract(origin string, key string) (bool, error) {
+	selfOrigin := origin + "]-" + key
 	value, err := a.store.Get(a.ctx, ds.NewKey(selfOrigin))
 	if err != nil {
 		if err != ds.ErrNotFound {
 			return false, err
 		} else {
 			//repair db to secure state
-			err = a.store.Put(a.ctx, ds.NewKey(selfOrigin+"]-GW"), []byte{0})
+			err = a.store.Put(a.ctx, ds.NewKey(selfOrigin+"]-"+key), []byte{0})
 			if err != nil {
 				return false, err
 			}
@@ -23,7 +28,7 @@ func (a *App) globalWriteAbstract(origin string) (bool, error) {
 	return false, nil
 }
 
-func (a *App) secureAddLoop(addValues map[string]string, ACL string, origin string, selfOrigin string) (map[string]bool, error) {
+func (a *App) secureAddLoop(addValues map[string]string, ACL, origin, selfOrigin string) (map[string]bool, error) {
 
 	success := make(map[string]bool, len(addValues))
 
@@ -35,7 +40,7 @@ func (a *App) secureAddLoop(addValues map[string]string, ACL string, origin stri
 
 	var globalWrite = false
 	if origin != selfOrigin {
-		globalWrite, err = a.globalWriteAbstract(origin)
+		globalWrite, err = a.globalWriteAbstract(origin, "GW")
 		if err != nil {
 			logger.Error(err)
 			return nil, err
@@ -45,9 +50,8 @@ func (a *App) secureAddLoop(addValues map[string]string, ACL string, origin stri
 	}
 
 	for k, v := range addValues {
-		origin := origin + "-" + k
 		// check value exists
-		didSucceed, err := a.secureAdd(origin, v, acl, origin, globalWrite)
+		didSucceed, err := a.secureAdd(k, v, acl, origin, selfOrigin, globalWrite)
 		if err != nil {
 			logger.Error(err)
 			success[k] = false
@@ -61,9 +65,8 @@ func (a *App) secureGetLoop(getValues []string, origin string, selfOrigin string
 	success := make(map[string]string, len(getValues))
 
 	for _, k := range getValues {
-		origin := origin + "-" + k
 		// Retrieve the value from the store
-		decryptedValue, err := a.secureGet(origin, selfOrigin)
+		decryptedValue, err := a.secureGet(k, origin, selfOrigin)
 		if err != nil {
 			logger.Error(err)
 			success[k] = ""
@@ -73,27 +76,28 @@ func (a *App) secureGetLoop(getValues []string, origin string, selfOrigin string
 	return success, nil
 }
 
-func (a *App) secureAdd(origin string, valueText string, acl string, selfOrigin string, globalWrite bool) (bool, error) {
+func (a *App) secureAdd(key, valueText, acl, origin, selfOrigin string, globalWrite bool) (bool, error) {
 	priorValue, err := a.store.Get(a.ctx, ds.NewKey(origin))
 	if err != nil {
 		if err != ds.ErrNotFound {
 			return false, err
-		} else if !globalWrite { // only continue if the global write is enabled
-			return false, nil
+		} else if !globalWrite && origin != selfOrigin { // only continue if the global write is enabled
+			return false, fmt.Errorf("global write not enabled")
 		}
-	} else if checkACL(string(priorValue[:2]), "2", selfOrigin, origin) {
-		return false, nil
+	} else if !checkACL(string(priorValue[:2]), "2", selfOrigin, origin) {
+		return false, fmt.Errorf("acl failure")
 	}
 
 	var encBytes []byte
 	// Encrypt the value with the private key
+
 	encryptedValue, err := AesGCMEncrypt(a.dbCryptKey, []byte(valueText))
 	if err != nil {
 		logger.Error(err)
 		return false, err
 	}
 	encBytes = append([]byte(acl), encryptedValue...)
-	err = a.store.Put(a.ctx, ds.NewKey(origin), encBytes)
+	err = a.store.Put(a.ctx, ds.NewKey(origin+"-"+key), encBytes)
 	if err != nil {
 		logger.Error(err)
 		return false, err
@@ -101,17 +105,19 @@ func (a *App) secureAdd(origin string, valueText string, acl string, selfOrigin 
 	return true, nil
 }
 
-func (a *App) secureGet(origin string, originSelf string) (string, error) {
+func (a *App) secureGet(key, origin, originSelf string) (string, error) {
 	// Retrieve the value from the store
-	value, err := a.store.Get(a.ctx, ds.NewKey(origin))
+	value, err := a.store.Get(a.ctx, ds.NewKey(origin+"-"+key))
 	if err != nil {
+		if err == ds.ErrNotFound {
+			return "", nil
+		}
 		logger.Error(err)
 		return "", err
-
 	}
 	//check ACL
-	if checkACL(string(value[:2]), "1", originSelf, origin) {
-		return "", nil
+	if !checkACL(string(value[:2]), "1", originSelf, origin) {
+		return "", fmt.Errorf("acl failure")
 	}
 	// Decrypt the value with the private key
 	decryptedValue, err := AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off

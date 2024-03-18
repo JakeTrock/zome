@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -17,11 +16,13 @@ import (
 type UploadHeader struct {
 	Filename string
 	Size     int64
+	Domain   string
 }
 
 type DownloadHeader struct {
 	Filename     string
 	ContinueFrom int64
+	Domain       string
 }
 
 func (a *App) upload(w http.ResponseWriter, r *http.Request) {
@@ -32,8 +33,8 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	//get last string after / in path
 	routePath := strings.Split(r.URL.Path, "/")
 	uploadId := routePath[len(routePath)-1]
-	origin := getOriginSegregator(r)
-	//TODO: how to do cross origin uploads?
+	originSelf := getOriginSegregator(r)
+	origin := originSelf
 
 	// Open websocket connection.
 	socket.conn, err = upgradeConn(w, r)
@@ -44,8 +45,11 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	//check if uploadid in active writes
 	header, ok := a.fsActiveWrites[uploadId]
 	if !ok {
-		socket.sendMessage(400, ("Invalid upload id"))
+		socket.sendMessage(400, fmtError("Invalid upload id"))
 		return
+	}
+	if header.Domain != originSelf {
+		origin = header.Domain
 	}
 
 	pathWithoutFile := path.Join(a.operatingPath, "zome", "data", origin, path.Dir(header.Filename))
@@ -54,14 +58,14 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	// Create data folder if it doesn't exist.
 	if _, err = os.Stat(pathWithoutFile); os.IsNotExist(err) {
 		if err = os.MkdirAll(pathWithoutFile, 0755); err != nil {
-			socket.sendMessage(400, ("Could not create data folder: " + err.Error()))
+			socket.sendMessage(400, fmtError("Could not create data folder: "+err.Error()))
 			return
 		}
 	}
 	// Create temp file to save file.
 	var tempFile *os.File
 	if tempFile, err = os.Create(writePath); err != nil {
-		socket.sendMessage(400, ("Could not create temp file: " + err.Error()))
+		socket.sendMessage(400, fmtError("Could not create temp file: "+err.Error()))
 		return
 	}
 	defer tempFile.Close()
@@ -71,7 +75,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	for {
 		mt, message, err := socket.conn.ReadMessage()
 		if err != nil {
-			socket.sendMessage(400, ("Error receiving file block: " + err.Error()))
+			socket.sendMessage(400, fmtError("Error receiving file block: "+err.Error()))
 			return
 		}
 		if mt != websocket.BinaryMessage {
@@ -82,7 +86,7 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 					delete(a.fsActiveWrites, uploadId)
 					err = os.Remove(tempFile.Name())
 					if err != nil {
-						socket.sendMessage(500, ("Error removing temp file: " + err.Error()))
+						socket.sendMessage(500, fmtError("Error removing temp file: "+err.Error()))
 					}
 					return
 				} else if strings.HasPrefix(string(message), "SKIPTO") {
@@ -90,24 +94,24 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 					skipIndex, err := strconv.ParseInt(strings.TrimPrefix(string(message), "SKIPTO"), 10, 64)
 					socket.sendMessage(200, ("Skipping to " + strconv.FormatInt(skipIndex, 10)))
 					if err != nil {
-						socket.sendMessage(400, ("Bad skip position: " + err.Error()))
+						socket.sendMessage(400, fmtError("Bad skip position: "+err.Error()))
 					}
 					if skipIndex > header.Size {
-						socket.sendMessage(400, ("Bad skip position: greater than file length"))
+						socket.sendMessage(400, fmtError("Bad skip position: greater than file length"))
 					}
 					bytesRead = skipIndex
 					continue
 				}
 
 			}
-			socket.sendMessage(400, ("Invalid file block received"))
+			socket.sendMessage(400, fmtError("Invalid file block received"))
 			return
 		}
 
 		// tempFile.Write(message)
 		_, err = tempFile.WriteAt(message, bytesRead)
 		if err != nil {
-			socket.sendMessage(500, ("Error writing to temp file: " + err.Error()))
+			socket.sendMessage(500, fmtError("Error writing to temp file: "+err.Error()))
 			return
 		}
 		bytesRead += int64(len(message))
@@ -124,16 +128,27 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	// calculate file sha256
 	sum256, err := sha256File(writePath)
 	if err != nil {
-		socket.sendMessage(500, ("Error getting file hash: " + err.Error()))
+		socket.sendMessage(500, fmtError("Error getting file hash: "+err.Error()))
 		return
 	}
-	writeObj := map[string]string{}
-	writeObj[header.Filename] = sum256
 
-	_, err = a.secureAddLoop(writeObj, "11", origin, origin) //TODO: handle cross origin uploads
-	if err != nil {
-		socket.sendMessage(500, ("Error adding file to db: " + err.Error()))
+	priorMetaData, error := a.secureGet(header.Filename, origin, originSelf)
+	if error != nil {
+		socket.sendMessage(500, fmtError("error getting prior metadata "+error.Error()))
 		return
+	}
+	//check if priorMetaData exists, if it does, add the sum key value pair to it
+	if priorMetaData != "" {
+		//add sum key value pair to priorMetaData
+		priorMetaData = strings.TrimSuffix(priorMetaData, "}")
+		priorMetaData += ",\"sum\":\"" + sum256 + "\"}"
+		_, err = a.secureAdd(header.Filename, priorMetaData, "11", origin, originSelf, true)
+		if err != nil {
+			socket.sendMessage(500, fmtError("Error adding file to db: "+err.Error()))
+			return
+		}
+	} else {
+		socket.sendMessage(500, fmtError("No metadata found for file"))
 	}
 
 	successObj := struct {
@@ -144,7 +159,6 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	}{DidSucceed: true, Hash: sum256, FileName: header.Filename, BytesRead: bytesRead}
 
 	socket.sendMessage(200, successObj)
-	return
 }
 
 func (a *App) download(w http.ResponseWriter, r *http.Request) {
@@ -155,19 +169,22 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	//get last string after / in path
 	routePath := strings.Split(r.URL.Path, "/")
 	downloadId := routePath[len(routePath)-1]
-	origin := getOriginSegregator(r)
-	//TODO: how to do cross origin downloads?
+	originSelf := getOriginSegregator(r)
+	origin := originSelf
 
 	socket.conn, err = upgradeConn(w, r)
 	if err != nil {
-		fmt.Println("Error on open of websocket connection:", err)
+		logger.Error("Error on open of websocket connection:", err)
 		return
 	}
 	//check if uploadid in active writes
 	filePath, ok := a.fsActiveReads[downloadId]
 	if !ok {
-		socket.sendMessage(400, ("Invalid download id"))
+		socket.sendMessage(400, fmtError("Invalid download id"))
 		return
+	}
+	if filePath.Domain != originSelf {
+		origin = filePath.Domain
 	}
 
 	readPath := path.Join(a.operatingPath, "zome", "data", origin, filePath.Filename)
@@ -175,25 +192,25 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	fi, err := os.Stat(readPath)
 	// Create data folder if it doesn't exist.
 	if os.IsNotExist(err) {
-		socket.sendMessage(400, ("Could not find data: " + err.Error()))
+		socket.sendMessage(400, fmtError("Could not find data: "+err.Error()))
 		return
 	}
 
 	fileSize := fi.Size()
 
 	if fileSize == 0 {
-		socket.sendMessage(400, ("File is empty"))
+		socket.sendMessage(400, fmtError("File is empty"))
 		return
 	}
 
 	if fileSize < filePath.ContinueFrom {
-		socket.sendMessage(400, ("ContinueFrom is greater than file size"))
+		socket.sendMessage(400, fmtError("ContinueFrom is greater than file size"))
 		return
 	}
 
 	fileHandle, err := os.Open(readPath)
 	if err != nil {
-		socket.sendMessage(500, ("Error opening file: " + err.Error()))
+		socket.sendMessage(500, fmtError("Error opening file: "+err.Error()))
 		return
 	}
 
@@ -217,7 +234,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		numBytesRead, err := fileHandle.ReadAt(fiBuf, bytesRead)
 
 		if err != nil && err != io.EOF {
-			socket.sendMessage(500, ("File error: " + err.Error()))
+			socket.sendMessage(500, fmtError("File error: "+err.Error()))
 			return
 		}
 
@@ -225,7 +242,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 
 		if numBytesRead > 0 {
 			if err := socket.conn.WriteMessage(websocket.BinaryMessage, fiBuf); err != nil {
-				socket.sendMessage(500, ("Socket error: " + err.Error()))
+				socket.sendMessage(500, fmtError("Socket error: "+err.Error()))
 				return
 			}
 		}

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,19 +8,6 @@ import (
 
 func TestHandleRemoveOrigin(t *testing.T) {
 	// Test case 1: Valid request
-	expectedSuccess := struct {
-		Code   int `json:"code"`
-		Status struct {
-			DidSucceed bool `json:"didSucceed"`
-		} `json:"status"`
-	}{
-		Code: 200,
-		Status: struct {
-			DidSucceed bool `json:"didSucceed"`
-		}{
-			DidSucceed: true,
-		},
-	}
 
 	controlSocket := establishControlSocket()
 
@@ -35,16 +20,14 @@ func TestHandleRemoveOrigin(t *testing.T) {
 	unmarshalledResponse := struct {
 		Code   int `json:"code"`
 		Status struct {
-			DidSucceed bool `json:"didSucceed"`
+			DidSucceed bool   `json:"didSucceed"`
+			Error      string `json:"error"`
 		} `json:"status"`
 	}{}
-	_, msg, err := controlSocket.ReadMessage()
-	fmt.Println(string(msg))
+	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	json.Unmarshal(msg, &unmarshalledResponse)
-	// err = controlSocket.ReadJSON(&unmarshalledResponse)
-	assert.NoError(t, err)
-	assert.Equal(t, expectedSuccess, unmarshalledResponse)
+	assert.Equal(t, 200, unmarshalledResponse.Code)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
 }
 
 func TestHandleAddRequest(t *testing.T) {
@@ -62,14 +45,16 @@ func TestSetGlobalWrite(t *testing.T) {
 	type successStruct struct {
 		Code   int `json:"code"`
 		Status struct {
-			DidSucceed bool `json:"didSucceed"`
+			DidSucceed bool   `json:"didSucceed"`
+			Error      string `json:"error"`
 		} `json:"status"`
 	}
 
 	type gwStruct struct {
 		Code   int `json:"code"`
 		Status struct {
-			GlobalWrite bool `json:"globalWrite"`
+			GlobalWrite bool   `json:"globalWrite"`
+			Error       string `json:"error"`
 		} `json:"status"`
 	}
 
@@ -196,6 +181,7 @@ func TestHandleDeleteRequest(t *testing.T) {
 		Code   int `json:"code"`
 		Status struct {
 			DidSucceed map[string]bool `json:"didSucceed"`
+			Error      string          `json:"error"`
 		} `json:"status"`
 	}
 
@@ -204,19 +190,10 @@ func TestHandleDeleteRequest(t *testing.T) {
 		successKeys[k] = true
 	}
 
-	expectedSuccess := deleteStruct{
-		Code: 200,
-		Status: struct {
-			DidSucceed map[string]bool `json:"didSucceed"`
-		}{
-			DidSucceed: successKeys,
-		},
-	}
-
 	// Add the key to the store
 	addval, err := addGeneralized(t, randomKeyValuePairs)
 	assert.NoError(t, err)
-	assert.Equal(t, expectedSuccess.Status.DidSucceed, addval)
+	assert.Equal(t, successKeys, addval)
 
 	// Delete the key from the store
 	unmarshalledResponse := deleteStruct{}
@@ -227,7 +204,9 @@ func TestHandleDeleteRequest(t *testing.T) {
 	assert.NoError(t, err)
 	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	assert.Equal(t, expectedSuccess, unmarshalledResponse)
+	assert.Empty(t, unmarshalledResponse.Status.Error)
+	assert.Equal(t, successKeys, unmarshalledResponse.Status.DidSucceed)
+	assert.Equal(t, 200, unmarshalledResponse.Code)
 }
 
 func addGeneralized(t *testing.T, randomKeyValuePairs keyValueReq) (map[string]bool, error) {
@@ -250,16 +229,8 @@ func addGeneralized(t *testing.T, randomKeyValuePairs keyValueReq) (map[string]b
 		Code   int `json:"code"`
 		Status struct {
 			DidSucceed map[string]bool `json:"didSucceed"`
+			Error      string          `json:"error"`
 		} `json:"status"`
-	}
-
-	expectedSuccess := successStruct{
-		Code: 200,
-		Status: struct {
-			DidSucceed map[string]bool `json:"didSucceed"`
-		}{
-			DidSucceed: successKvp,
-		},
 	}
 
 	//make add request to controlSocket
@@ -272,6 +243,7 @@ func addGeneralized(t *testing.T, randomKeyValuePairs keyValueReq) (map[string]b
 	unmarshalledResponse := successStruct{}
 	err = controlSocket.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
-	assert.Equal(t, expectedSuccess, unmarshalledResponse)
+	assert.Equal(t, successKvp, unmarshalledResponse.Status.DidSucceed)
+	assert.Equal(t, 200, unmarshalledResponse.Code)
 	return unmarshalledResponse.Status.DidSucceed, err
 }

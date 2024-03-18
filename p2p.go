@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	ds "github.com/ipfs/go-datastore"
@@ -69,7 +68,7 @@ func (a *App) InitP2P() {
 		for {
 			msg, err := netSubs.Next(a.ctx)
 			if err != nil {
-				fmt.Println(err)
+				logger.Info(err)
 				break
 			}
 			h.ConnManager().TagPeer(msg.ReceivedFrom, "keep", 100)
@@ -103,11 +102,11 @@ func (a *App) InitP2P() {
 	opts.Logger = logger
 	opts.RebroadcastInterval = 5 * time.Second
 	opts.PutHook = func(k ds.Key, v []byte) {
-		fmt.Printf("Added: [%s] -> %s\n", k, string(v))
+		logger.Info("Added: [%s] -> %s\n", k, string(v))
 
 	}
 	opts.DeleteHook = func(k ds.Key) {
-		fmt.Printf("Removed: [%s]\n", k)
+		logger.Info("Removed: [%s]\n", k)
 	}
 
 	crdt, err := crdt.New(a.store, ds.NewKey("crdt"), ipfs, pubsubBC, opts)
@@ -117,14 +116,14 @@ func (a *App) InitP2P() {
 	defer crdt.Close()
 	defer psubCancel()
 
-	fmt.Println("Bootstrapping...")
+	logger.Info("Bootstrapping...")
 
 	bstr, _ := multiaddr.NewMultiaddr("/ip4/94.130.135.167/tcp/33123/ipfs/12D3KooWFta2AE7oiK1ioqjVAKajUJauZWfeM7R413K7ARtHRDAu")
 	inf, _ := peer.AddrInfoFromP2pAddr(bstr)
 	list := append(ipfslite.DefaultBootstrapPeers(), *inf)
 	ipfs.Bootstrap(list)
 	h.ConnManager().TagPeer(inf.ID, "keep", 100)
-	fmt.Printf(`
+	logger.Infof(`
 Peer ID: %s
 Listen address: %s
 Topic: %s
