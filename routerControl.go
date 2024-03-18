@@ -141,7 +141,7 @@ func (a *App) getServerStats(response wsConn, _ []byte, _ string) ([]byte, error
 }
 
 func getOriginSegregator(r *http.Request) string {
-	origin := r.Header.Get("Origin") //TODO: is there a better way to segregate requests, this has no bearing on client apps
+	origin := r.Header.Get("Origin") //TODO: is there a better way to segregate requests, this has no bearing on client apps, I think we want pub/priv key
 	baseurl, err := url.Parse(origin)
 	if err != nil {
 		panic(fmt.Errorf("error parsing origin: %s", err))

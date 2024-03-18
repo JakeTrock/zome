@@ -12,7 +12,7 @@ import (
 )
 
 func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
-	var requestBody struct { // TODO: add forcedomain(also should we cache global ACLs?)
+	var requestBody struct {
 		Request
 		Data struct {
 			FileName     string            `json:"filename"`
