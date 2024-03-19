@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	ds "github.com/ipfs/go-datastore"
@@ -82,7 +84,31 @@ func (a *App) InitP2P() {
 				return
 			default:
 				topic.Publish(a.ctx, []byte("ping"))
+				h.Peerstore().Put(a.peerId, "name", a.friendlyName) //user friendly name
 				time.Sleep(20 * time.Second)
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			select {
+			case <-a.ctx.Done():
+				return
+			default:
+				// send this out less frequently
+				h.Peerstore().Put(a.peerId, "start", a.startTime.String())
+				dataDirSize, err := DirSize(a.operatingPath)
+				if err != nil {
+					logger.Error(err)
+				}
+				dbSize, err := ds.DiskUsage(a.ctx, a.store)
+				if err != nil {
+					logger.Error(err)
+				}
+				h.Peerstore().Put(a.peerId, "space", strconv.FormatInt(dataDirSize+int64(dbSize), 10))
+
+				time.Sleep(200 * time.Second)
 			}
 		}
 	}()
@@ -103,7 +129,6 @@ func (a *App) InitP2P() {
 	opts.RebroadcastInterval = 5 * time.Second
 	opts.PutHook = func(k ds.Key, v []byte) {
 		logger.Info("Added: [%s] -> %s\n", k, string(v))
-
 	}
 	opts.DeleteHook = func(k ds.Key) {
 		logger.Info("Removed: [%s]\n", k)
@@ -135,7 +160,57 @@ Data Folder: %s
 	a.host = h
 }
 
-func connectedPeers(h host.Host) []*peer.AddrInfo {
+type cleanPeer struct {
+	ID     string
+	Name   string
+	Uptime string
+	Space  string
+}
+
+func connectedPeersClean(h host.Host) []cleanPeer {
+	var pinfos []cleanPeer
+
+	for _, c := range h.Network().Conns() {
+		pinfos = append(pinfos, getOnePeerInfo(h, c.RemotePeer()))
+	}
+	return pinfos
+}
+
+func getOnePeerInfo(h host.Host, peerID peer.ID) cleanPeer {
+	name, err := h.Peerstore().Get(peerID, "name")
+	if err != nil {
+		logger.Error(err)
+	}
+	uname := "UNERR"
+	if name, ok := name.(string); ok {
+		uname = name
+	}
+	startTime, err := h.Peerstore().Get(peerID, "start")
+	if err != nil {
+		logger.Error(err)
+	}
+	uptime := "UTERR"
+	if startTime, ok := startTime.(time.Time); ok {
+		uptime = fmt.Sprint(time.Since(startTime).String())
+	}
+	space, err := h.Peerstore().Get(peerID, "space")
+	if err != nil {
+		logger.Error(err)
+	}
+	spaceStr := "SPERR"
+	if space, ok := space.(string); ok {
+		spaceStr = space
+	}
+
+	return cleanPeer{
+		ID:     peerID.String()[:5],
+		Name:   uname,
+		Uptime: uptime,
+		Space:  spaceStr,
+	}
+}
+
+func connectedPeersFull(h host.Host) []*peer.AddrInfo {
 	var pinfos []*peer.AddrInfo
 	for _, c := range h.Network().Conns() {
 		pinfos = append(pinfos, &peer.AddrInfo{

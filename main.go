@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +26,7 @@ import (
 )
 
 const name = "zome"
+const zomeVersion = "0.0.1"
 
 var logger = logging.Logger("globalLogs")
 
@@ -40,12 +40,14 @@ type App struct {
 	host       host.Host
 	subTopics  map[string][]string
 
-	fsMutex        sync.Mutex
 	fsActiveWrites map[string]UploadHeader
 	fsActiveReads  map[string]DownloadHeader
 
 	peerId     peer.ID
 	privateKey crypto.PrivKey
+
+	friendlyName string
+	maxSpace     int64 //TODO: useme
 }
 
 func initPath(overridePath string) string {
@@ -176,6 +178,14 @@ func (a *App) Startup(overrides map[string]string) {
 
 	a.subTopics = retrieveTopics(store, ctx)
 
+	a.friendlyName = "zome"
+	v, err := store.Get(ctx, ds.NewKey("friendlyName")) //get the user friendly name
+	if err != nil && err != ds.ErrNotFound {
+		logger.Fatal(err)
+	} else if v != nil {
+		a.friendlyName = string(v)
+	}
+
 	a.ctx = ctx
 	a.operatingPath = configFilePath
 
@@ -215,7 +225,7 @@ func main() {
 		logger.Info("Running in daemon mode")
 		go func() {
 			for {
-				logger.Infof("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeers(app.host)))
+				logger.Infof("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeersFull(app.host)))
 				time.Sleep(10 * time.Second)
 			}
 		}()
