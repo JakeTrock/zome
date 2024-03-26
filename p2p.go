@@ -8,6 +8,7 @@ import (
 
 	ds "github.com/ipfs/go-datastore"
 	crdt "github.com/ipfs/go-ds-crdt"
+	"github.com/lucsky/cuid"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -24,14 +25,22 @@ func (a *App) InitP2P() {
 	if err != nil {
 		logger.Fatal(err)
 	}
-	keys := make([]string, len(a.subTopics))
 
-	i := 0
-	for k := range a.subTopics { //TODO: sub to all of these
-		keys[i] = k
-		i++
+	herdTopicKey := ds.NewKey("herdTopic")
+	herdTopic, err := a.store.Get(a.ctx, herdTopicKey)
+	topicName := string(herdTopic)
+	if err != nil && err != ds.ErrNotFound {
+		logger.Fatal(err)
+	} else if err == ds.ErrNotFound {
+		randomUUID := cuid.New()
+
+		err = a.store.Put(a.ctx, herdTopicKey, []byte(randomUUID))
+		if err != nil {
+			logger.Fatal(err)
+		}
+		topicName = randomUUID
 	}
-	var topicName = keys[0]
+
 	// Bootstrappers are using 1024 keys. See:
 	// https://github.com/ipfs/infra/issues/378
 
@@ -54,7 +63,7 @@ func (a *App) InitP2P() {
 		logger.Fatal(err)
 	}
 
-	topic, err := psub.Join(topicName + "-net")
+	topic, err := psub.Join(topicName + "-znet")
 	if err != nil {
 		logger.Fatal(err)
 	}
@@ -143,6 +152,7 @@ func (a *App) InitP2P() {
 
 	logger.Info("Bootstrapping...")
 
+	//TODO: what the hell is this?
 	bstr, _ := multiaddr.NewMultiaddr("/ip4/94.130.135.167/tcp/33123/ipfs/12D3KooWFta2AE7oiK1ioqjVAKajUJauZWfeM7R413K7ARtHRDAu")
 	inf, _ := peer.AddrInfoFromP2pAddr(bstr)
 	list := append(ipfslite.DefaultBootstrapPeers(), *inf)
@@ -158,6 +168,8 @@ Data Folder: %s
 	)
 
 	a.host = h
+
+	a.topic = topic
 }
 
 type cleanPeer struct {
@@ -210,6 +222,20 @@ func getOnePeerInfo(h host.Host, peerID peer.ID) cleanPeer {
 	}
 }
 
+func getAddrForShortID(h host.Host, shortIDs []string) []peer.AddrInfo {
+	var pinfos []peer.AddrInfo
+	for _, c := range h.Network().Conns() {
+		pid := c.RemotePeer()
+		if contains(shortIDs, pid.String()[:5]) {
+			pinfos = append(pinfos, peer.AddrInfo{
+				ID:    pid,
+				Addrs: []multiaddr.Multiaddr{c.RemoteMultiaddr()},
+			})
+		}
+	}
+	return pinfos
+}
+
 func connectedPeersFull(h host.Host) []*peer.AddrInfo {
 	var pinfos []*peer.AddrInfo
 	for _, c := range h.Network().Conns() {
@@ -219,4 +245,14 @@ func connectedPeersFull(h host.Host) []*peer.AddrInfo {
 		})
 	}
 	return pinfos
+}
+
+// Helper function to check if a slice contains a string
+func contains(slice []string, str string) bool {
+	for _, v := range slice {
+		if v == str {
+			return true
+		}
+	}
+	return false
 }

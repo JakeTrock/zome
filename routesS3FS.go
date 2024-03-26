@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	ds "github.com/ipfs/go-datastore"
@@ -21,6 +22,7 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 			OverridePath string            `json:"overridePath"`
 			ACL          string            `json:"acl"`  // acl of the metadata
 			FACL         string            `json:"facl"` // acl of the file within metadata
+			Encryption   bool              `json:"encryption"`
 		} `json:"data"`
 	}
 	var successObj = struct {
@@ -51,7 +53,7 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 	}
 
 	// Ensure file path doesn't contain ".."
-	if !legalFileName(requestBody.Data.FileName) {
+	if illegalFileName(requestBody.Data.FileName) {
 		wc.sendMessage(400, fmtError("invalid file path"))
 		return
 	}
@@ -111,9 +113,10 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 	randomId := cuid.New()
 
 	a.fsActiveWrites[randomId] = UploadHeader{
-		Filename: requestBody.Data.FileName,
-		Size:     requestBody.Data.FileSize,
-		Domain:   origin,
+		Filename:   requestBody.Data.FileName,
+		Size:       requestBody.Data.FileSize,
+		Domain:     origin,
+		Encryption: requestBody.Data.Encryption,
 	}
 
 	successObj.UploadId = randomId
@@ -147,6 +150,7 @@ func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
 			FileName     string `json:"fileName"`
 			ContinueFrom int64  `json:"continueFrom"`
 			ForceDomain  string `json:"forceDomain"`
+			Encryption   bool   `json:"encryption"`
 		} `json:"data"`
 	}
 	var successObj = struct {
@@ -166,8 +170,13 @@ func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
 		return
 	}
 
-	if !legalFileName(requestBody.Data.FileName) {
+	if illegalFileName(requestBody.Data.FileName) {
 		wc.sendMessage(400, fmtError("invalid file path"))
+		return
+	}
+
+	if requestBody.Data.ContinueFrom > 0 && requestBody.Data.Encryption {
+		wc.sendMessage(400, fmtError("cannot use continue from an encrypted file"))
 		return
 	}
 
@@ -227,6 +236,7 @@ func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
 		Filename:     requestBody.Data.FileName,
 		ContinueFrom: requestBody.Data.ContinueFrom,
 		Domain:       origin,
+		Encryption:   requestBody.Data.Encryption,
 	}
 
 	successObj.DidSucceed = true
@@ -258,7 +268,7 @@ func (a *App) deleteObjectRoute(wc wsConn, request []byte, originSelf string) {
 		return
 	}
 
-	if !legalFileName(requestBody.Data.FileName) {
+	if illegalFileName(requestBody.Data.FileName) {
 		wc.sendMessage(400, fmtError("invalid file path"))
 		return
 	}
@@ -379,8 +389,133 @@ func (a *App) getGlobalFACL(wc wsConn, _ []byte, selfOrigin string) {
 	wc.sendMessage(200, successObj)
 }
 
-func legalFileName(path string) bool {
-	return strings.Contains(path, "..") ||
-		strings.Contains(path, "/") ||
-		strings.Contains(path, "~")
+func (a *App) getDirectoryListing(wc wsConn, request []byte, selfOrigin string) {
+	var requestBody struct {
+		Request
+		Data struct {
+			Directory string `json:"directory"`
+		} `json:"data"`
+	}
+
+	err := json.Unmarshal(request, &requestBody)
+	if err != nil {
+		wc.sendMessage(400, fmtError(err.Error()))
+	}
+
+	if requestBody.Data.Directory == "" {
+		wc.sendMessage(400, fmtError("directory is required"))
+		return
+	}
+
+	if illegalFileName(requestBody.Data.Directory) {
+		wc.sendMessage(400, fmtError("invalid directory path"))
+		return
+	}
+
+	origin := selfOrigin
+	if requestBody.ForceDomain != "" {
+		origin = requestBody.ForceDomain
+	}
+	// see if path exists
+	key := path.Join(origin, requestBody.Data.Directory)
+	readPath := path.Join(a.operatingPath, "zome", "data", key)
+
+	_, err = os.Stat(readPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			wc.sendMessage(400, fmtError("the specified directory does not exist"))
+			return
+		}
+		wc.sendMessage(500, fmtError("error checking directory existence"))
+		return
+	}
+
+	directoryListing := make([]string, 0)
+	//get directory listing
+	err = filepath.Walk(readPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		directoryListing = append(directoryListing, path)
+		return nil
+	})
+
+	if err != nil {
+		wc.sendMessage(500, fmtError("error getting directory listing "+err.Error()))
+		return
+	}
+
+	//remove the directory path from the listing
+	directoryListing = directoryListing[1:]
+
+	// remove the base path from all listings
+	for i, v := range directoryListing {
+		tstring := strings.TrimPrefix(v, readPath)
+		// remove leading slash
+		directoryListing[i] = path.Join(requestBody.Data.Directory, tstring)
+	}
+
+	// get metadata for each file
+	metaObject, err := a.secureGetLoop(directoryListing, origin, selfOrigin)
+	if err != nil {
+		wc.sendMessage(500, fmtError("error getting metadata for directory listing "+err.Error()))
+		return
+	}
+
+	returnMessage := struct {
+		DidSucceed bool              `json:"didSucceed"`
+		Files      map[string]string `json:"files"`
+	}{
+		DidSucceed: true,
+		Files:      metaObject,
+	}
+
+	wc.sendMessage(200, returnMessage)
+}
+
+func (a *App) removeObjectOrigin(wc wsConn, request []byte, selfOrigin string) {
+	var requestBody struct {
+		Request
+		Data struct {
+			Directory string `json:"directory"`
+		} `json:"data"`
+	}
+
+	err := json.Unmarshal(request, &requestBody)
+	if err != nil {
+		wc.sendMessage(400, fmtError(err.Error()))
+	}
+
+	if requestBody.Data.Directory == "" {
+		wc.sendMessage(400, fmtError("directory is required"))
+		return
+	}
+
+	// check if origin is allowed to be removed
+	if !checkACL(selfOrigin, "3", selfOrigin, selfOrigin) {
+		wc.sendMessage(403, fmtError("remove permission denied"))
+		return
+	}
+
+	// remove origin
+	err = a.store.Delete(a.ctx, ds.NewKey(requestBody.Data.Directory))
+	if err != nil {
+		wc.sendMessage(500, fmtError("error removing directory "+err.Error()))
+		return
+	}
+
+	//remove fs directory
+	key := path.Join(selfOrigin, requestBody.Data.Directory)
+	delPath := path.Join(a.operatingPath, "zome", "data", key)
+
+	err = os.RemoveAll(delPath)
+
+	wc.sendMessage(200, struct {
+		DidSucceed bool `json:"didSucceed"`
+	}{true})
+}
+
+func illegalFileName(path string) bool {
+	return (strings.Contains(path, "..") ||
+		strings.Contains(path, "~"))
 }

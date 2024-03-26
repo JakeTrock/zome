@@ -65,6 +65,10 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 			a.getGlobalFACL(socket, message, host)
 		case "fs-setGlobalWrite":
 			a.setGlobalFACL(socket, message, host)
+		case "fs-removeOrigin":
+			a.removeObjectOrigin(socket, message, host)
+		case "fs-getListing":
+			a.getDirectoryListing(socket, message, host)
 
 		// ADmin routes
 		case "ps-getPeerStats":
@@ -72,7 +76,7 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		//TODO: admin routes for blocking origins, fs restrictions
 		default:
 			// logger.Error("Invalid action")
-			socket.sendMessage(400, "Invalid action")
+			socket.sendMessage(400, "{\"error\":\"Invalid action\"}")
 			return
 		}
 	}

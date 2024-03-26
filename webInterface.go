@@ -21,7 +21,11 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func (a *App) initWeb() {
+func (a *App) initWeb(configOverrides map[string]string) {
+	configPort := "5253" //5j2a5k3e
+	if configPortOverride, ok := configOverrides["configPort"]; ok {
+		configPort = configPortOverride
+	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./frontend/index.html")
 	})
@@ -31,7 +35,7 @@ func (a *App) initWeb() {
 	http.HandleFunc("/v1/download/", a.download)
 	// http.HandleFunc("/v1/evt/", a.websocketHandler) //TODO: handle p2p events, channels etc
 
-	log.Fatal(http.ListenAndServe(":5253", nil)) //5j2a5k3e
+	log.Fatal(http.ListenAndServe(":"+configPort, nil))
 }
 
 type Request struct {

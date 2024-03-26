@@ -9,7 +9,7 @@ import (
 func TestHandleRemoveOrigin(t *testing.T) {
 	// Test case 1: Valid request
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	//make removeorigin request to controlSocket
 	err := controlSocket.WriteJSON(Request{
@@ -40,7 +40,7 @@ func TestHandleAddRequest(t *testing.T) {
 func TestSetGlobalWrite(t *testing.T) {
 	// Test case 1: Valid request
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	type successStruct struct {
 		Code   int `json:"code"`
@@ -112,7 +112,7 @@ func TestHandleGetRequest(t *testing.T) {
 	// Test case 1: Valid request
 	randomKeyValuePairs, randomList, _ := generateRandomStructs()
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	type getStruct struct {
 		Code   int `json:"code"`
@@ -167,7 +167,7 @@ func TestHandleDeleteRequest(t *testing.T) {
 	// Test case 1: Valid request
 	randomKeyValuePairs, randomList, _ := generateRandomStructs()
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	request := Request{
 		Data: struct {
@@ -218,7 +218,7 @@ func addGeneralized(t *testing.T, randomKeyValuePairs keyValueReq) (map[string]b
 		Values: randomKeyValuePairs.values,
 	}
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	successKvp := map[string]bool{}
 	for k := range randomKeyValuePairs.values {

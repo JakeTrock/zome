@@ -3,23 +3,20 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"net/url"
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 )
 
-const uploadEndpoint = "ws://localhost:5253/v1/upload/"
-const downloadEndpoint = "ws://localhost:5253/v1/download/"
-
-func establishFileUploadSocket(uploadId string) *websocket.Conn {
+func (tc *testContext) establishFileUploadSocket(uploadId string) *websocket.Conn {
 	header := http.Header{}
-	header.Add("Origin", originVar)
-	controlSocket, _, err := websocket.DefaultDialer.Dial(uploadEndpoint+uploadId, header)
+	header.Add("Origin", "https://"+tc.originBase)
+	controlSocket, _, err := websocket.DefaultDialer.Dial("ws://"+tc.requestDomain+"/v1/upload/"+uploadId, header)
 	if err != nil {
 		logger.Error(err)
 		return nil
@@ -27,10 +24,10 @@ func establishFileUploadSocket(uploadId string) *websocket.Conn {
 	return controlSocket
 }
 
-func establishFileDownloadSocket(uploadId string) *websocket.Conn {
+func (tc *testContext) establishFileDownloadSocket(uploadId string) *websocket.Conn {
 	header := http.Header{}
-	header.Add("Origin", originVar)
-	controlSocket, _, err := websocket.DefaultDialer.Dial(downloadEndpoint+uploadId, header)
+	header.Add("Origin", "https://"+tc.originBase)
+	controlSocket, _, err := websocket.DefaultDialer.Dial("ws://"+tc.requestDomain+"/v1/download/"+uploadId, header)
 	if err != nil {
 		logger.Error(err)
 		return nil
@@ -38,22 +35,22 @@ func establishFileDownloadSocket(uploadId string) *websocket.Conn {
 	return controlSocket
 }
 
-func getTestFile() *os.File {
-	file, err := os.OpenFile("./testPath/testfile.jpg", os.O_RDONLY, 0755)
+func (tc *testContext) getTestFile() *os.File {
+	file, err := os.OpenFile(path.Join(testPathBase, "./testfile.jpg"), os.O_RDONLY, 0755)
 	if err != nil {
 		panic(err)
 	}
 	return file
 }
 
-func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
+func putGeneralized(t *testing.T, controlSocket *websocket.Conn, encryption bool) string {
 	rawMeta := map[string]string{
 		"test1":   generateRandomKey(),
 		"testTwo": generateRandomKey(),
 		"from":    "zipdisk",
 	}
 
-	testFile := getTestFile()
+	testFile := firstApp.getTestFile()
 	defer testFile.Close()
 
 	fi, err := testFile.Stat()
@@ -68,14 +65,15 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 		OverridePath string            `json:"overridePath"`
 		ACL          string            `json:"acl"`  // acl of the metadata
 		FACL         string            `json:"facl"` // acl of the file within metadata
+		Encryption   bool              `json:"encryption"`
 	}{
-
 		FileName:     path.Join(randPath, path.Base(testFile.Name())),
 		FileSize:     fileSize,
 		Tagging:      rawMeta, //this should probly just be nested json
 		OverridePath: "",
 		ACL:          "11",
 		FACL:         "11",
+		Encryption:   encryption,
 	}
 
 	err = controlSocket.WriteJSON(Request{
@@ -102,7 +100,7 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 		return ""
 	}
 	// init upload socket
-	uploadSocket := establishFileUploadSocket(uploadId)
+	uploadSocket := firstApp.establishFileUploadSocket(uploadId)
 
 	// iterate over chunks of testfile and send them to the server
 	chunkSize := int64(1024)
@@ -119,10 +117,19 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 		assert.NoError(t, err)
 		err = uploadSocket.WriteMessage(websocket.BinaryMessage, chunk)
 		assert.NoError(t, err)
-		_, msg, err := uploadSocket.ReadMessage()
-		assert.NoError(t, err)
-		assert.NotEmpty(t, msg)
+
 		if i == numChunks {
+			_, msg, err := uploadSocket.ReadMessage()
+			assert.NoError(t, err)
+			assert.NotEmpty(t, msg)
+			//write 0 to finish upload
+			err = uploadSocket.WriteMessage(websocket.BinaryMessage, []byte("EOF"))
+			assert.NoError(t, err)
+
+			_, msg, err = uploadSocket.ReadMessage()
+			assert.NoError(t, err)
+			assert.NotEmpty(t, msg)
+
 			msgJson := struct {
 				Code   int `json:"code"`
 				Status struct {
@@ -138,6 +145,10 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 			assert.True(t, msgJson.Status.DidSucceed)
 			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
 			assert.Equal(t, fileRequest.FileSize, msgJson.Status.BytesRead)
+		} else {
+			_, msg, err := uploadSocket.ReadMessage()
+			assert.NoError(t, err)
+			assert.NotEmpty(t, msg)
 		}
 		// assert.Equal(t, []byte("{\"pct\":"+fmt.Sprint((((i*chunkSize)*100)/fileRequest.FileSize)+1)+"}"), msg)
 	}
@@ -146,14 +157,13 @@ func putGeneralized(t *testing.T, controlSocket *websocket.Conn) string {
 	ogSha, err := sha256File("./testPath/testfile.jpg")
 	assert.NoError(t, err)
 
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	newPath := path.Join("testPath", "zome", "data", originSeg, fileRequest.FileName)
+	newPath := path.Join(firstApp.path, "zome/data", firstApp.originBase, fileRequest.FileName)
 	newSha, err := sha256File(newPath)
 	assert.NoError(t, err)
 
-	assert.Equal(t, ogSha, newSha)
+	if !encryption {
+		assert.Equal(t, ogSha, newSha)
+	}
 	return fileRequest.FileName
 }
 
@@ -171,8 +181,8 @@ func createDownloadFile(t *testing.T, fileName string) *os.File {
 
 func TestPut(t *testing.T) {
 	// Test case 1: Valid request
-	controlSocket := establishControlSocket()
-	putGeneralized(t, controlSocket)
+	controlSocket := firstApp.establishControlSocket()
+	putGeneralized(t, controlSocket, false)
 }
 
 func TestFileSeek(t *testing.T) {
@@ -183,7 +193,7 @@ func TestFileSeek(t *testing.T) {
 		"from":    "zipdisk",
 	}
 
-	testFile := getTestFile()
+	testFile := firstApp.getTestFile()
 	defer testFile.Close()
 
 	fi, err := testFile.Stat()
@@ -205,7 +215,7 @@ func TestFileSeek(t *testing.T) {
 		FACL:     "11",
 	}
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	err = controlSocket.WriteJSON(Request{
 		Action: "fs-put",
@@ -231,7 +241,7 @@ func TestFileSeek(t *testing.T) {
 		return
 	}
 	//init upload socket
-	uploadSocket := establishFileUploadSocket(uploadId)
+	uploadSocket := firstApp.establishFileUploadSocket(uploadId)
 
 	//iterate over chunks of testfile and send them to the server
 	chunkSize := int64(1024)
@@ -259,7 +269,14 @@ func TestFileSeek(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotEmpty(t, msg)
 
-		if i == halfChunks {
+		if strings.Contains(string(msg), "100") {
+			//write eof to finish upload
+			err = uploadSocket.WriteMessage(websocket.BinaryMessage, []byte("EOF"))
+			assert.NoError(t, err)
+			_, msg, err := uploadSocket.ReadMessage()
+			assert.NoError(t, err)
+			assert.NotEmpty(t, msg)
+
 			msgJson := struct {
 				Code   int `json:"code"`
 				Status struct {
@@ -283,10 +300,7 @@ func TestFileSeek(t *testing.T) {
 	}
 
 	//check file is there
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	_, err = os.Stat(path.Join("testPath", "zome", "data", originSeg, fileRequest.FileName))
+	_, err = os.Stat(path.Join(firstApp.path, "zome/data", firstApp.originBase, fileRequest.FileName))
 	assert.False(t, os.IsNotExist(err))
 	//verify that it's only (second) half populated?
 }
@@ -299,7 +313,7 @@ func TestFileCancel(t *testing.T) {
 		"from":    "zipdisk",
 	}
 
-	testFile := getTestFile()
+	testFile := firstApp.getTestFile()
 	defer testFile.Close()
 
 	fi, err := testFile.Stat()
@@ -321,7 +335,7 @@ func TestFileCancel(t *testing.T) {
 		FACL:     "11",
 	}
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	err = controlSocket.WriteJSON(Request{
 		Action: "fs-put",
@@ -346,7 +360,7 @@ func TestFileCancel(t *testing.T) {
 		return
 	}
 	//init upload socket
-	uploadSocket := establishFileUploadSocket(uploadId)
+	uploadSocket := firstApp.establishFileUploadSocket(uploadId)
 
 	//iterate over chunks of testfile and send them to the server
 	chunkSize := int64(1024)
@@ -370,10 +384,8 @@ func TestFileCancel(t *testing.T) {
 	}
 
 	//check file is there
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	_, err = os.Stat(path.Join("testPath", "zome", "data", originSeg, fileRequest.FileName))
+
+	_, err = os.Stat(path.Join(firstApp.path, "zome/data", firstApp.originBase, fileRequest.FileName))
 	assert.False(t, os.IsNotExist(err))
 
 	err = uploadSocket.WriteMessage(websocket.TextMessage, []byte("CANCEL"))
@@ -382,20 +394,18 @@ func TestFileCancel(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("{\"code\":200,\"status\":\"Upload canceled\"}"), msg)
 
-	_, err = os.Stat(path.Join("testPath", "zome", "data", originSeg, fileRequest.FileName))
+	_, err = os.Stat(path.Join(firstApp.path, "zome/data", firstApp.originBase, fileRequest.FileName))
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestFileDelete(t *testing.T) {
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
-	fileName := putGeneralized(t, controlSocket)
+	fileName := putGeneralized(t, controlSocket, false)
 
 	//check file is there
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	_, err = os.Stat(path.Join("testPath", "zome", "data", originSeg, fileName))
+
+	_, err := os.Stat(path.Join(firstApp.path, "zome/data", firstApp.originBase, fileName))
 	assert.False(t, os.IsNotExist(err))
 
 	// send delete
@@ -425,14 +435,14 @@ func TestFileDelete(t *testing.T) {
 
 	//check file is gone
 
-	_, err = os.Stat(path.Join("testPath", "zome", "data", originSeg, fileName))
+	_, err = os.Stat(path.Join(firstApp.path, "zome/data", firstApp.originBase, fileName))
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestDownload(t *testing.T) {
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
-	downloadTarget := putGeneralized(t, controlSocket)
+	downloadTarget := putGeneralized(t, controlSocket, false)
 
 	downloadFile := createDownloadFile(t, generateRandomKey()+"-dlfile.jpg")
 	defer downloadFile.Close()
@@ -470,7 +480,7 @@ func TestDownload(t *testing.T) {
 		return
 	}
 	//init download socket
-	downloadSocket := establishFileDownloadSocket(downloadId)
+	downloadSocket := firstApp.establishFileDownloadSocket(downloadId)
 
 	//get expected size
 	sizeStruct := struct {
@@ -524,22 +534,133 @@ func TestDownload(t *testing.T) {
 	}
 
 	//hashes of input and output match
-	newSha, err := sha256File(downloadFile.Name())
+	originalSha, err := sha256File("./testPath/testfile.jpg")
 	assert.NoError(t, err)
 
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	ogSha, err := sha256File(path.Join("testPath", "zome", "data", originSeg, downloadTarget))
+	uploadSha, err := sha256File(path.Join(firstApp.path, "zome/data", firstApp.originBase, downloadTarget))
 	assert.NoError(t, err)
 
-	assert.Equal(t, ogSha, newSha)
+	dlSha, err := sha256File(downloadFile.Name())
+	assert.NoError(t, err)
+
+	assert.Equal(t, originalSha, uploadSha)
+	assert.Equal(t, originalSha, dlSha)
+}
+
+func TestDownloadCrypt(t *testing.T) {
+	controlSocket := firstApp.establishControlSocket()
+
+	downloadTarget := putGeneralized(t, controlSocket, true)
+
+	downloadFile := createDownloadFile(t, generateRandomKey()+"-dlfile.jpg")
+	defer downloadFile.Close()
+
+	// make download folder
+
+	fileRequest := struct {
+		FileName   string `json:"fileName"`
+		Encryption bool   `json:"encryption"`
+	}{
+		FileName:   downloadTarget,
+		Encryption: true,
+	}
+
+	err := controlSocket.WriteJSON(Request{
+		Action: "fs-get",
+		Data:   fileRequest,
+	})
+	assert.NoError(t, err)
+	unmarshalledResponse := struct {
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			DownloadId string `json:"downloadId"`
+			MetaData   string `json:"metadata"`
+			Error      string `json:"error"`
+		} `json:"status"`
+	}{}
+	err = controlSocket.ReadJSON(&unmarshalledResponse)
+	assert.NoError(t, err)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
+	assert.Empty(t, unmarshalledResponse.Status.Error)
+
+	downloadId := unmarshalledResponse.Status.DownloadId
+	assert.NotEmpty(t, downloadId)
+	if downloadId == "" {
+		return
+	}
+	//init download socket
+	downloadSocket := firstApp.establishFileDownloadSocket(downloadId)
+
+	//get expected size
+	sizeStruct := struct {
+		Code   int `json:"code"`
+		Status struct {
+			Size int64 `json:"size"`
+		} `json:"status"`
+	}{}
+	err = downloadSocket.ReadJSON(&sizeStruct)
+	assert.NoError(t, err)
+	assert.NotEmpty(t, sizeStruct.Status.Size)
+
+	//pull chunks from download socket and feed them into testfile
+	for {
+		// err = downloadSocket.WriteMessage(websocket.BinaryMessage, []byte(""))
+		// assert.NoError(t, err)
+		mType, chunk, err := downloadSocket.ReadMessage()
+		assert.NoError(t, err)
+
+		//check if we've written more than the expected size
+		if int64(len(chunk)) > sizeStruct.Status.Size {
+			assert.Fail(t, "Downloaded more than expected size")
+		}
+
+		fi, err := downloadFile.Stat()
+		assert.NoError(t, err)
+		fiSize := fi.Size()
+
+		//check if we've written the expected size
+		if fiSize == sizeStruct.Status.Size {
+			break
+		}
+
+		if mType == websocket.TextMessage {
+			msgJson := struct {
+				Code   int `json:"code"`
+				Status struct {
+					DidSucceed bool   `json:"didSucceed"`
+					FileName   string `json:"fileName"`
+				} `json:"status"`
+			}{}
+			err = json.Unmarshal(chunk, &msgJson)
+			assert.NoError(t, err)
+			assert.True(t, msgJson.Status.DidSucceed)
+			assert.Equal(t, fileRequest.FileName, msgJson.Status.FileName)
+			break
+		}
+
+		_, err = downloadFile.Write(chunk)
+		assert.NoError(t, err)
+	}
+
+	//hashes of input and output match
+	originalSha, err := sha256File("./testPath/testfile.jpg")
+	assert.NoError(t, err)
+
+	uploadSha, err := sha256File(path.Join(firstApp.path, "zome/data", firstApp.originBase, downloadTarget))
+	assert.NoError(t, err)
+
+	downloadSha, err := sha256File(downloadFile.Name())
+	assert.NoError(t, err)
+
+	assert.NotEqual(t, originalSha, uploadSha)
+	assert.Equal(t, originalSha, downloadSha)
 }
 
 func TestDownloadCancel(t *testing.T) {
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
-	downloadTarget := putGeneralized(t, controlSocket)
+	downloadTarget := putGeneralized(t, controlSocket, false)
 
 	downloadFile := createDownloadFile(t, generateRandomKey()+"-dlfile.jpg")
 	defer downloadFile.Close()
@@ -577,7 +698,7 @@ func TestDownloadCancel(t *testing.T) {
 		return
 	}
 	//init download socket
-	downloadSocket := establishFileDownloadSocket(downloadId)
+	downloadSocket := firstApp.establishFileDownloadSocket(downloadId)
 
 	//get expected size
 	sizeStruct := struct {
@@ -645,19 +766,16 @@ func TestDownloadCancel(t *testing.T) {
 	newSha, err := sha256File(downloadFile.Name())
 	assert.NoError(t, err)
 
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	ogSha, err := sha256File(path.Join("testPath", "zome", "data", originSeg, downloadTarget))
+	ogSha, err := sha256File(path.Join(firstApp.path, "zome/data", firstApp.originBase, downloadTarget))
 	assert.NoError(t, err)
 
 	assert.NotEqual(t, ogSha, newSha)
 }
 
 func TestDownloadFromPoint(t *testing.T) {
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
-	downloadTarget := putGeneralized(t, controlSocket)
+	downloadTarget := putGeneralized(t, controlSocket, false)
 
 	downloadFile := createDownloadFile(t, generateRandomKey()+"-dlfile.jpg")
 	defer downloadFile.Close()
@@ -697,7 +815,7 @@ func TestDownloadFromPoint(t *testing.T) {
 		return
 	}
 	//init download socket
-	downloadSocket := establishFileDownloadSocket(downloadId)
+	downloadSocket := firstApp.establishFileDownloadSocket(downloadId)
 
 	//get expected size
 	sizeStruct := struct {
@@ -754,10 +872,7 @@ func TestDownloadFromPoint(t *testing.T) {
 	newSha, err := sha256File(downloadFile.Name())
 	assert.NoError(t, err)
 
-	baseurl, err := url.Parse(originVar)
-	assert.NoError(t, err)
-	originSeg := baseurl.Hostname()
-	ogSha, err := sha256File(path.Join("testPath", "zome", "data", originSeg, downloadTarget))
+	ogSha, err := sha256File(path.Join(firstApp.path, "zome/data", firstApp.originBase, downloadTarget))
 	assert.NoError(t, err)
 
 	assert.NotEqual(t, ogSha, newSha)
@@ -766,7 +881,7 @@ func TestDownloadFromPoint(t *testing.T) {
 func TestSetGetFACL(t *testing.T) {
 	// Test case 1: Valid request
 
-	controlSocket := establishControlSocket()
+	controlSocket := firstApp.establishControlSocket()
 
 	type successStruct struct {
 		Code   int `json:"code"`
@@ -835,5 +950,67 @@ func TestSetGetFACL(t *testing.T) {
 	assert.Empty(t, unmarshalledGW.Status.Error)
 
 	assert.True(t, unmarshalledGW.Status.GlobalFsAccess)
+
+}
+
+func TestGetDirectoryListing(t *testing.T) {
+	controlSocket := firstApp.establishControlSocket()
+	fileName := putGeneralized(t, controlSocket, false)
+	// get path of folder
+	filePath := path.Dir(fileName)
+	// get directory listing
+	err := controlSocket.WriteJSON(Request{
+		Action: "fs-getListing",
+		Data: struct {
+			Directory string `json:"directory"`
+		}{Directory: filePath},
+	})
+	assert.NoError(t, err)
+	unmarshalledResponse := struct {
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool              `json:"didSucceed"`
+			Files      map[string]string `json:"files"`
+			Error      string            `json:"error"`
+		} `json:"status"`
+	}{}
+	err = controlSocket.ReadJSON(&unmarshalledResponse)
+	assert.NoError(t, err)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
+	assert.Empty(t, unmarshalledResponse.Status.Error)
+
+	assert.Contains(t, unmarshalledResponse.Status.Files, fileName)
+	assert.NotEmpty(t, unmarshalledResponse.Status.Files[fileName])
+
+}
+
+func TestRemoveObjectOrigin(t *testing.T) {
+	controlSocket := firstApp.establishControlSocket()
+	fileName := putGeneralized(t, controlSocket, false)
+	// get path of folder
+	filePath := path.Dir(fileName)
+	// delete directory listing
+	err := controlSocket.WriteJSON(Request{
+		Action: "fs-removeOrigin",
+		Data: struct {
+			Directory string `json:"directory"`
+		}{Directory: filePath},
+	})
+	assert.NoError(t, err)
+	unmarshalledResponse := struct {
+		Code   int `json:"code"`
+		Status struct {
+			DidSucceed bool   `json:"didSucceed"`
+			Error      string `json:"error"`
+		} `json:"status"`
+	}{}
+
+	err = controlSocket.ReadJSON(&unmarshalledResponse)
+	assert.NoError(t, err)
+	assert.True(t, unmarshalledResponse.Status.DidSucceed)
+	assert.Empty(t, unmarshalledResponse.Status.Error)
+	//check directory is not in data folder
+	_, err = os.Stat(path.Join(firstApp.path, "zome/data", firstApp.originBase, filePath))
+	assert.True(t, os.IsNotExist(err))
 
 }

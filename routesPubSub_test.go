@@ -8,7 +8,8 @@ import (
 
 func TestGetPeers(t *testing.T) {
 	// Create a mock App instance
-	controlSocket := establishControlSocket()
+	controlSocketFirst := firstApp.establishControlSocket()
+	// controlSocketSecond := secondApp.establishControlSocket()
 
 	type successStruct struct {
 		Code   int `json:"code"`
@@ -25,14 +26,20 @@ func TestGetPeers(t *testing.T) {
 	}
 
 	// now check false
-	err := controlSocket.WriteJSON(Request{
+	err := controlSocketFirst.WriteJSON(Request{
 		Action: "ps-getPeerStats",
 		Data:   struct{}{},
 	})
 	assert.NoError(t, err)
+	// err = controlSocketSecond.WriteJSON(Request{
+	// 	Action: "ps-getPeerStats",
+	// 	Data:   struct{}{},
+	// })
+	// assert.NoError(t, err)
 
+	// test first app instance
 	unmarshalledResponse := successStruct{}
-	err = controlSocket.ReadJSON(&unmarshalledResponse)
+	err = controlSocketFirst.ReadJSON(&unmarshalledResponse)
 	assert.NoError(t, err)
 	assert.Equal(t, 200, unmarshalledResponse.Code)
 
@@ -43,6 +50,13 @@ func TestGetPeers(t *testing.T) {
 	assert.NotEmpty(t, unmarshalledResponse.Status.Version)
 	assert.NotEmpty(t, unmarshalledResponse.Status.StartTime)
 	assert.NotEmpty(t, unmarshalledResponse.Status.Uptime)
-	// assert.NotEmpty(t, unmarshalledResponse.Status.Peers) //TODO: uncomment when multipeer test is established
 
+	// test second app instance
+
+	// unmarshalledResponse = successStruct{}
+	// err = controlSocketSecond.ReadJSON(&unmarshalledResponse)
+	// assert.NoError(t, err)
+	// assert.Equal(t, 200, unmarshalledResponse.Code)
+
+	// assert.NotEmpty(t, unmarshalledResponse.Status.Peers) //TODO: uncomment when multipeer test is established
 }

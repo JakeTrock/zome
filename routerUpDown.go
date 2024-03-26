@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/binary"
 	"io"
 	"net/http"
 	"os"
@@ -14,15 +16,17 @@ import (
 //https://gist.github.com/tsilvers/5f827fb11aee027e22c6b3102ebcc497
 
 type UploadHeader struct {
-	Filename string
-	Size     int64
-	Domain   string
+	Filename   string
+	Size       int64
+	Domain     string
+	Encryption bool
 }
 
 type DownloadHeader struct {
 	Filename     string
 	ContinueFrom int64
 	Domain       string
+	Encryption   bool
 }
 
 func (a *App) upload(w http.ResponseWriter, r *http.Request) {
@@ -74,6 +78,26 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 	bytesRead := int64(0)
 	for {
 		mt, message, err := wc.conn.ReadMessage()
+		if bytes.Equal(message, []byte("EOF")) {
+			tempFile.Close()
+			break
+		}
+		var wBuff []byte
+		if header.Encryption && mt == websocket.BinaryMessage {
+			cBuff, err := AesGCMEncrypt(a.dbCryptKey, message)
+			//add length of encrypted block to the beginning of the block
+			length := uint32(len(cBuff))
+
+			lengthBytes := make([]byte, 4)
+			binary.BigEndian.PutUint32(lengthBytes, length)
+			wBuff = append(lengthBytes, cBuff...)
+			//add terminator character to the end of wBuff
+			// wBuff = append(wBuff, 0)
+			if err != nil {
+				wc.sendMessage(500, fmtError("Error encrypting file block: "+err.Error()))
+				return
+			}
+		}
 		if err != nil {
 			wc.sendMessage(400, fmtError("Error receiving file block: "+err.Error()))
 			return
@@ -90,6 +114,10 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 					}
 					return
 				} else if strings.HasPrefix(string(message), "SKIPTO") {
+					if header.Encryption {
+						wc.sendMessage(400, fmtError("Cannot skip encrypted file"))
+						return
+					}
 					//if message begins with SKIPTO, skip to that point
 					skipIndex, err := strconv.ParseInt(strings.TrimPrefix(string(message), "SKIPTO"), 10, 64)
 					wc.sendMessage(200, ("Skipping to " + strconv.FormatInt(skipIndex, 10)))
@@ -108,19 +136,26 @@ func (a *App) upload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// tempFile.Write(message)
-		_, err = tempFile.WriteAt(message, bytesRead)
-		if err != nil {
-			wc.sendMessage(500, fmtError("Error writing to temp file: "+err.Error()))
-			return
-		}
-		bytesRead += int64(len(message))
-		if bytesRead >= header.Size {
-			tempFile.Close()
-			break
+		if header.Encryption {
+			_, err = tempFile.Write(wBuff)
+			if err != nil {
+				wc.sendMessage(500, fmtError("Error writing enc to temp file: "+err.Error()))
+				return
+			}
+		} else {
+			_, err = tempFile.Write(message)
+			if err != nil {
+				wc.sendMessage(500, fmtError("Error writing to temp file: "+err.Error()))
+				return
+			}
 		}
 
+		// despite encrypted being longer all we care about is the input
+		// to boot, this really only exists for the progress bar
+		bytesRead += int64(len(message))
+
 		wc.sendPct(int((bytesRead * 100) / header.Size))
+
 	}
 
 	// remove uploadid from active writes
@@ -178,16 +213,16 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	//check if uploadid in active writes
-	filePath, ok := a.fsActiveReads[downloadId]
+	header, ok := a.fsActiveReads[downloadId]
 	if !ok {
 		wc.sendMessage(400, fmtError("Invalid download id"))
 		return
 	}
-	if filePath.Domain != originSelf {
-		origin = filePath.Domain
+	if header.Domain != originSelf {
+		origin = header.Domain
 	}
 
-	readPath := path.Join(a.operatingPath, "zome", "data", origin, filePath.Filename)
+	readPath := path.Join(a.operatingPath, "zome", "data", origin, header.Filename)
 
 	fi, err := os.Stat(readPath)
 	// Create data folder if it doesn't exist.
@@ -196,14 +231,23 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileSize := fi.Size()
+	var fileSize = int64(0)
+	if header.Encryption {
+		fileSize, err = calculateDecryptedFileSize(readPath)
+		if err != nil {
+			wc.sendMessage(500, fmtError("Error calculating decrypted file size: "+err.Error()))
+			return
+		}
+	} else {
+		fileSize = fi.Size()
+	}
 
 	if fileSize == 0 {
 		wc.sendMessage(400, fmtError("File is empty"))
 		return
 	}
 
-	if fileSize < filePath.ContinueFrom {
+	if fileSize < header.ContinueFrom {
 		wc.sendMessage(400, fmtError("ContinueFrom is greater than file size"))
 		return
 	}
@@ -222,23 +266,50 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	//consistently write "test" to socket until cancel is received
 
 	// Read file blocks until all bytes are received.
-	bytesRead := int64(filePath.ContinueFrom)
+	bytesRead := int64(header.ContinueFrom)
 	fiBuf := make([]byte, 4096)
+	//allocate additional buffer if encryption is enabled
 
 	for {
-		// shrink fibuf if we are at the end of the file
-		if bytesRead+int64(len(fiBuf)) > fileSize {
-			fiBuf = make([]byte, fileSize-bytesRead)
+
+		var numBytesRead int
+		var err error
+
+		if header.Encryption {
+			lengthBytes := make([]byte, 4)
+			_, err := fileHandle.ReadAt(lengthBytes, bytesRead)
+			if err != nil {
+				wc.sendMessage(500, fmtError("Error reading encrypted block length: "+err.Error()))
+				return
+			}
+			length := binary.BigEndian.Uint32(lengthBytes)
+
+			encryptedBlock := make([]byte, length)
+			_, err = fileHandle.ReadAt(encryptedBlock, bytesRead+4)
+			if err != nil {
+				wc.sendMessage(500, fmtError("Error reading encrypted block: "+err.Error()))
+				return
+			}
+			fiBuf, err = AesGCMDecrypt(a.dbCryptKey, encryptedBlock)
+			if err != nil {
+				wc.sendMessage(500, fmtError("Error decrypting file block: "+err.Error()))
+				return
+			}
+			numBytesRead = len(fiBuf)
+			bytesRead += int64(length + 4)
+		} else {
+			// shrink fibuf if we are at the end of the file
+			if bytesRead+int64(len(fiBuf)) > fileSize {
+				fiBuf = make([]byte, fileSize-bytesRead)
+			}
+			numBytesRead, err = fileHandle.ReadAt(fiBuf, bytesRead)
+			if err != nil && err != io.EOF {
+				wc.sendMessage(500, fmtError("File error: "+err.Error()))
+				return
+			}
+
+			bytesRead += int64(numBytesRead)
 		}
-
-		numBytesRead, err := fileHandle.ReadAt(fiBuf, bytesRead)
-
-		if err != nil && err != io.EOF {
-			wc.sendMessage(500, fmtError("File error: "+err.Error()))
-			return
-		}
-
-		bytesRead += int64(numBytesRead)
 
 		if numBytesRead > 0 {
 			if err := wc.conn.WriteMessage(websocket.BinaryMessage, fiBuf); err != nil {
@@ -259,7 +330,7 @@ func (a *App) download(w http.ResponseWriter, r *http.Request) {
 	successObj := struct {
 		DidSucceed bool   `json:"didSucceed"`
 		FileName   string `json:"fileName"`
-	}{DidSucceed: true, FileName: filePath.Filename}
+	}{DidSucceed: true, FileName: header.Filename}
 
 	wc.sendMessage(200, successObj)
 }

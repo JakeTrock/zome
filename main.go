@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -13,13 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lucsky/cuid"
-
 	ds "github.com/ipfs/go-datastore"
 	badger "github.com/ipfs/go-ds-badger"
 	logging "github.com/ipfs/go-log/v2"
 
 	"github.com/adrg/xdg"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -38,9 +36,9 @@ type App struct {
 	dbCryptKey []byte
 	store      *badger.Datastore
 	host       host.Host
-	subTopics  map[string][]string
+	topic      *pubsub.Topic //all of your zome nodes share across this topic
 
-	fsActiveWrites map[string]UploadHeader
+	fsActiveWrites map[string]UploadHeader //TODO: reading and writing to maps is not threadsafe
 	fsActiveReads  map[string]DownloadHeader
 
 	peerId     peer.ID
@@ -103,33 +101,6 @@ func retrievePrivateKey(store *badger.Datastore, ctx context.Context) crypto.Pri
 	return priv
 }
 
-func retrieveTopics(store *badger.Datastore, ctx context.Context) map[string][]string {
-	topics := map[string][]string{}
-	k := ds.NewKey("topics")
-	v, err := store.Get(ctx, k)
-	if err != nil && err != ds.ErrNotFound {
-		logger.Fatal(err)
-	} else if v != nil {
-		json.Unmarshal(v, &topics)
-		if err != nil {
-			logger.Fatal(err)
-		}
-	} else {
-		randomUUID := cuid.New()
-		topics[randomUUID] = []string{}
-		data, err := json.Marshal(topics)
-		if err != nil {
-			logger.Fatal(err)
-		}
-		err = store.Put(ctx, k, data)
-		if err != nil {
-			logger.Fatal(err)
-		}
-
-	}
-	return topics
-}
-
 func retrieveDbKey(refPath string) []byte {
 	keyPath := filepath.Join(refPath, "key")
 	var priv []byte
@@ -176,8 +147,6 @@ func (a *App) Startup(overrides map[string]string) {
 		logger.Fatal(err)
 	}
 
-	a.subTopics = retrieveTopics(store, ctx)
-
 	a.friendlyName = "zome"
 	v, err := store.Get(ctx, ds.NewKey("friendlyName")) //get the user friendly name
 	if err != nil && err != ds.ErrNotFound {
@@ -205,6 +174,7 @@ func (a *App) Shutdown() {
 
 func main() {
 	configPathOverride := flag.String("configPath", "", "overrides default config path")
+	configPortOverride := flag.String("port", "", "overrides default port")
 	help := flag.Bool("h", false, "Display Help")
 	flag.Parse()
 	if *help {
@@ -219,7 +189,7 @@ func main() {
 
 	app.InitP2P()
 
-	app.initWeb()
+	app.initWeb(map[string]string{"configPort": *configPortOverride})
 
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
 		logger.Info("Running in daemon mode")

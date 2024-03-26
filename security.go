@@ -143,3 +143,34 @@ func DirSize(path string) (int64, error) {
 	})
 	return size, err
 }
+
+func calculateDecryptedFileSize(filePath string) (int64, error) { //TODO: may not be correct,you should just store this in metadata
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	fileSize := fileInfo.Size()
+
+	// Calculate the number of blocks in the file
+	numBlocks := int(fileSize / aes.BlockSize)
+	if fileSize%aes.BlockSize != 0 {
+		numBlocks++
+	}
+
+	// Calculate the size of the decrypted file
+	decryptedSize := int64(numBlocks * aes.BlockSize)
+
+	// Subtract the padding size from the decrypted size
+	paddingSize := int(fileSize % aes.BlockSize)
+	if paddingSize > 0 {
+		decryptedSize -= int64(aes.BlockSize - paddingSize)
+	}
+
+	return decryptedSize, nil
+}
