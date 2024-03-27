@@ -29,7 +29,7 @@ func TestGetPeers(t *testing.T) {
 
 	// now check false
 	err := controlSocketFirst.WriteJSON(Request{
-		Action: "rp-getPeerStats",
+		Action: "ad-getPeerStats",
 		Data:   struct{}{},
 	})
 	assert.NoError(t, err)
@@ -43,7 +43,7 @@ func TestGetPeers(t *testing.T) {
 	unmarshalledResponse := successStruct{}
 	tp, msg, err := controlSocketFirst.ReadMessage()
 	assert.NoError(t, err)
-	fmt.Println(tp, msg)
+	fmt.Println(tp, string(msg))
 	assert.NotEmpty(t, msg)
 	// err = controlSocketFirst.ReadJSON(&unmarshalledResponse)
 	err = json.Unmarshal(msg, &unmarshalledResponse)
