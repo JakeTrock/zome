@@ -169,7 +169,7 @@ Data Folder: %s
 
 	a.host = h
 
-	a.topic = topic
+	a.restrictedTopic = topic
 }
 
 type cleanPeer struct {
@@ -215,7 +215,7 @@ func getOnePeerInfo(h host.Host, peerID peer.ID) cleanPeer {
 	}
 
 	return cleanPeer{
-		ID:     peerID.String()[:5],
+		ID:     peerID.String()[len(peerID.String())-6:],
 		Name:   uname,
 		Uptime: uptime,
 		Space:  spaceStr,
@@ -226,7 +226,7 @@ func getAddrForShortID(h host.Host, shortIDs []string) []peer.AddrInfo {
 	var pinfos []peer.AddrInfo
 	for _, c := range h.Network().Conns() {
 		pid := c.RemotePeer()
-		if contains(shortIDs, pid.String()[:5]) {
+		if contains(shortIDs, pid.String()[len(pid.String())-6:]) {
 			pinfos = append(pinfos, peer.AddrInfo{
 				ID:    pid,
 				Addrs: []multiaddr.Multiaddr{c.RemoteMultiaddr()},

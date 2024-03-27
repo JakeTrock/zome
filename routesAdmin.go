@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -51,30 +50,8 @@ func (a *App) getPeerStats(wc wsConn, request []byte, selfOrigin string) {
 	wc.sendMessage(200, returnMessage)
 }
 
-//TODO: establishTunnel(high speed 1:1 connection between two peers(tcp/udp?) sendMessage(blank sends to all)), moar!
-
-func (a *App) sendMessage(wc wsConn, request []byte, selfOrigin string) {
-	var requestBody struct {
-		Action      string `json:"action"`
-		ForceDomain string `json:"forceDomain"`
-		Data        struct {
-			PeerIDs []string `json:"peerID"`
-			Data    string   `json:"data"`
-		} `json:"data"`
-	}
-	err := json.Unmarshal(request, &requestBody)
-	if err != nil {
-		logger.Error(err)
-		wc.sendMessage(500, "error unmarshalling message"+err.Error())
-		return
-	}
-
-	// //get first key of a.topics //TODO: don't publish to all topics, this should be reimplemented
-	err = a.topic.Publish(a.ctx, []byte(requestBody.Data.Data))
-	if err != nil {
-		logger.Error(err)
-		wc.sendMessage(500, "error publishing message"+err.Error())
-		return
-	}
-
-}
+//TODO: routes
+// set/get storage limits
+// rm/approve node peer
+// rm/add approved app peer
+// list approved apps

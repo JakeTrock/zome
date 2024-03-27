@@ -68,11 +68,12 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		case "fs-removeOrigin":
 			a.removeObjectOrigin(socket, message, host)
 		case "fs-getListing":
-			a.getDirectoryListing(socket, message, host)
+			a.getDirectoryListing(socket, message, host) //TODO: all of these routes over p2p, only admin over ws
 
 		// ADmin routes
-		case "ps-getPeerStats":
+		case "ad-getPeerStats":
 			a.getPeerStats(socket, message, host)
+
 		//TODO: admin routes for blocking origins, fs restrictions
 		default:
 			// logger.Error("Invalid action")
@@ -83,7 +84,7 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 }
 
 func getOriginSegregator(r *http.Request) string {
-	origin := r.Header.Get("Origin") //TODO: is there a better way to segregate requests, this has no bearing on client apps, I think we want pub/priv key
+	origin := r.Header.Get("Origin") //TODO: replace this with just getting the pubkey from the p2p request
 	baseurl, err := url.Parse(origin)
 	if err != nil {
 		panic(fmt.Errorf("error parsing origin: %s", err))

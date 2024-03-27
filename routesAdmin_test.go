@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,19 +29,24 @@ func TestGetPeers(t *testing.T) {
 
 	// now check false
 	err := controlSocketFirst.WriteJSON(Request{
-		Action: "ps-getPeerStats",
+		Action: "rp-getPeerStats",
 		Data:   struct{}{},
 	})
 	assert.NoError(t, err)
 	// err = controlSocketSecond.WriteJSON(Request{
-	// 	Action: "ps-getPeerStats",
+	// 	Action: "rp-getPeerStats",
 	// 	Data:   struct{}{},
 	// })
 	// assert.NoError(t, err)
 
 	// test first app instance
 	unmarshalledResponse := successStruct{}
-	err = controlSocketFirst.ReadJSON(&unmarshalledResponse)
+	tp, msg, err := controlSocketFirst.ReadMessage()
+	assert.NoError(t, err)
+	fmt.Println(tp, msg)
+	assert.NotEmpty(t, msg)
+	// err = controlSocketFirst.ReadJSON(&unmarshalledResponse)
+	err = json.Unmarshal(msg, &unmarshalledResponse)
 	assert.NoError(t, err)
 	assert.Equal(t, 200, unmarshalledResponse.Code)
 

@@ -33,10 +33,13 @@ type App struct {
 	operatingPath string
 	startTime     time.Time
 
-	dbCryptKey []byte
-	store      *badger.Datastore
-	host       host.Host
-	topic      *pubsub.Topic //all of your zome nodes share across this topic
+	dbCryptKey      []byte
+	store           *badger.Datastore
+	host            host.Host
+	restrictedTopic *pubsub.Topic //all of your zome nodes share across this topic
+	publicTopic     *pubsub.Topic //all of your app nodes share across this topic
+	//TODO: add key listing of all peers in public topic, restricted topic
+	//TODO: add listing of "friend" topics with which you share data, do this after you've developed the gui/file mgmt sys
 
 	fsActiveWrites map[string]UploadHeader //TODO: reading and writing to maps is not threadsafe
 	fsActiveReads  map[string]DownloadHeader
