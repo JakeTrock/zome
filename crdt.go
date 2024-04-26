@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
+	ipfslite "github.com/hsanjuan/ipfs-lite"
 	ds "github.com/ipfs/go-datastore"
+	crdt "github.com/ipfs/go-ds-crdt"
 	"github.com/jaketrock/zome/zcrypto"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 // allow/disallow adding values to a domain without said value there yet(meaning no acl would exist)
@@ -158,11 +164,66 @@ func (a *App) secureInternalKeyGet(key string) ([]byte, error) {
 		return nil, err
 	}
 	// Decrypt the value with the private key
-	decryptedValue, err := zcrypto.AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off
+	decryptedValue, err := zcrypto.AesGCMDecrypt(a.dbCryptKey, value)
 	if err != nil {
 		a.Logger.Error(err)
 		return nil, err
 	}
 
 	return decryptedValue, nil
+}
+
+func (a *App) initCRDT(topic string) (func(), error) {
+	//TODO: make it so you pass in store so you can have stores for every fed domain
+	ipfs, err := ipfslite.New(a.ctx, a.store, nil, a.network.Host, a.network.Dht, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	psubctx, psubCancel := context.WithCancel(a.ctx)
+	pubsubBC, err := crdt.NewPubSubBroadcaster(psubctx, a.network.Psub, topic)
+	if err != nil {
+		psubCancel()
+		return nil, err
+	}
+
+	opts := crdt.DefaultOptions()
+	opts.Logger = a.Logger
+	opts.RebroadcastInterval = 5 * time.Second
+	opts.PutHook = func(k ds.Key, v []byte) {
+		a.Logger.Info("Added: [%s] -> %s\n", k, string(v))
+	}
+	opts.DeleteHook = func(k ds.Key) {
+		a.Logger.Info("Removed: [%s]\n", k)
+	}
+
+	crdt, err := crdt.New(a.store, ds.NewKey("crdt"), ipfs, pubsubBC, opts)
+	if err != nil {
+		psubCancel()
+		crdt.Close()
+		return nil, err
+	}
+
+	cancel := func() {
+		psubCancel()
+		crdt.Close()
+		fmt.Println("CRDT closed")
+	}
+
+	a.Logger.Info("Bootstrapping...")
+
+	// ipfs bootstrap node
+	bstr, err := multiaddr.NewMultiaddr("/ip4/94.130.135.167/tcp/33123/ipfs/12D3KooWFta2AE7oiK1ioqjVAKajUJauZWfeM7R413K7ARtHRDAu")
+	if err != nil {
+		return nil, err
+	}
+	inf, err := peer.AddrInfoFromP2pAddr(bstr)
+	if err != nil {
+		return nil, err
+	}
+	list := append(ipfslite.DefaultBootstrapPeers(), *inf)
+	ipfs.Bootstrap(list)
+	a.network.Host.ConnManager().TagPeer(inf.ID, "keep", 100)
+
+	return cancel, nil
 }

@@ -23,7 +23,7 @@ func (zc *ZomeController) DbAdd(putReq sharedInterfaces.DbAddRequest) (sharedInt
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DbAddResponse)
 	if !okType {
-		return sharedInterfaces.DbAddResponse{}, genericTypeError
+		return sharedInterfaces.DbAddResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -34,7 +34,7 @@ func (zc *ZomeController) DbGet(putReq sharedInterfaces.DbGetRequest) (sharedInt
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DbGetResponse)
 	if !okType {
-		return sharedInterfaces.DbGetResponse{}, genericTypeError
+		return sharedInterfaces.DbGetResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -45,7 +45,7 @@ func (zc *ZomeController) DbDelete(putReq sharedInterfaces.DbDeleteRequest) (sha
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DbDeleteResponse)
 	if !okType {
-		return sharedInterfaces.DbDeleteResponse{}, genericTypeError
+		return sharedInterfaces.DbDeleteResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -56,7 +56,7 @@ func (zc *ZomeController) DbSetGlobalWrite(putReq sharedInterfaces.DbSetGlobalWr
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DbSetGlobalWriteResponse)
 	if !okType {
-		return sharedInterfaces.DbSetGlobalWriteResponse{}, genericTypeError
+		return sharedInterfaces.DbSetGlobalWriteResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -67,7 +67,7 @@ func (zc *ZomeController) DbGetGlobalWrite() (sharedInterfaces.DbGetGlobalWriteR
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DbGetGlobalWriteResponse)
 	if !okType {
-		return sharedInterfaces.DbGetGlobalWriteResponse{}, genericTypeError
+		return sharedInterfaces.DbGetGlobalWriteResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -78,7 +78,7 @@ func (zc *ZomeController) DbRemoveOrigin() (sharedInterfaces.DbRemoveOriginRespo
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DbRemoveOriginResponse)
 	if !okType {
-		return sharedInterfaces.DbRemoveOriginResponse{}, genericTypeError
+		return sharedInterfaces.DbRemoveOriginResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -90,7 +90,7 @@ func (zc *ZomeController) FsPut(putReq sharedInterfaces.PutObjectRequest) (share
 	}
 	rspTyped, okType := resp.(sharedInterfaces.PutObjectResponse)
 	if !okType {
-		return sharedInterfaces.PutObjectResponse{}, genericTypeError
+		return sharedInterfaces.PutObjectResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -102,7 +102,7 @@ func (zc *ZomeController) FsGet(putReq sharedInterfaces.GetObjectRequest) (share
 	}
 	rspTyped, okType := resp.(sharedInterfaces.GetObjectResponse)
 	if !okType {
-		return sharedInterfaces.GetObjectResponse{}, genericTypeError
+		return sharedInterfaces.GetObjectResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -114,7 +114,7 @@ func (zc *ZomeController) FsDelete(putReq sharedInterfaces.DeleteObjectRequest) 
 	}
 	rspTyped, okType := resp.(sharedInterfaces.DeleteObjectResponse)
 	if !okType {
-		return sharedInterfaces.DeleteObjectResponse{}, genericTypeError
+		return sharedInterfaces.DeleteObjectResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -126,7 +126,7 @@ func (zc *ZomeController) FsSetGlobalWrite(putReq sharedInterfaces.SetGlobalFACL
 	}
 	rspTyped, okType := resp.(sharedInterfaces.SetGlobalFACLResponse)
 	if !okType {
-		return sharedInterfaces.SetGlobalFACLResponse{}, genericTypeError
+		return sharedInterfaces.SetGlobalFACLResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -138,7 +138,7 @@ func (zc *ZomeController) FsGetGlobalWrite() (sharedInterfaces.GetGlobalFACLResp
 	}
 	rspTyped, okType := resp.(sharedInterfaces.GetGlobalFACLResponse)
 	if !okType {
-		return sharedInterfaces.GetGlobalFACLResponse{}, genericTypeError
+		return sharedInterfaces.GetGlobalFACLResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -150,7 +150,7 @@ func (zc *ZomeController) FsRemoveOrigin(putReq sharedInterfaces.RemoveObjectOri
 	}
 	rspTyped, okType := resp.(sharedInterfaces.RemoveObjectOriginResponse)
 	if !okType {
-		return sharedInterfaces.RemoveObjectOriginResponse{}, genericTypeError
+		return sharedInterfaces.RemoveObjectOriginResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }
@@ -162,7 +162,7 @@ func (zc *ZomeController) FsGetListing(putReq sharedInterfaces.GetDirectoryListi
 	}
 	rspTyped, okType := resp.(sharedInterfaces.GetDirectoryListingResponse)
 	if !okType {
-		return sharedInterfaces.GetDirectoryListingResponse{}, genericTypeError
+		return sharedInterfaces.GetDirectoryListingResponse{}, errGenericType
 	}
 	return rspTyped, nil
 }

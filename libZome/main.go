@@ -5,19 +5,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/jaketrock/zome/sharedInterfaces"
-	"github.com/libp2p/go-libp2p"
-	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/jaketrock/zome/zcrypto"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	"github.com/libp2p/go-libp2p/core/host"
+	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
-	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 )
 
 type ResBody struct {
@@ -25,11 +19,7 @@ type ResBody struct {
 	Status any `json:"status,omitempty"`
 }
 
-type Zstate struct {
-	ctx    context.Context
-	host   host.Host
-	topics map[string]*pubsub.Topic
-}
+var zstate zcrypto.Zstate //TODO: bad idea?
 
 //TODO: behavior:
 
@@ -39,214 +29,89 @@ type Zstate struct {
 // 3. connect to that peer, exchange secure keys
 // 4. send message only to that peer
 
-func (z *Zstate) Initialize(topicName string) {
+func Initialize(topicName string, privateKey string) error {
 	flag.Parse()
 	ctx := context.Background()
+	var pkeyUnmarshalled crypto.PrivKey
+	var err error
 
-	h, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"))
-
-	z.host = h
-	z.ctx = ctx
-
-	if err != nil {
-		panic(err)
-	}
-	go z.discoverPeers(topicName)
-}
-
-func (z *Zstate) AddTopic(topicName string) {
-	ps, err := pubsub.NewGossipSub(z.ctx, z.host)
-	if err != nil {
-		panic(err)
-	}
-	topic, err := ps.Join(topicName)
-	if err != nil {
-		panic(err)
-	}
-
-	sub, err := topic.Subscribe()
-	if err != nil {
-		panic(err)
-	}
-	z.printMessagesFrom(sub)
-	z.topics[topicName] = topic
-}
-
-// TODO: get better data here, how do I know it's a server etc
-func (z *Zstate) ListPeers(topic string) []string {
-	//get all topics for host
-	var peers []peer.ID
-	if topic == "" {
-		peers = z.host.Peerstore().Peers()
+	if privateKey == "" {
+		pkeyUnmarshalled, err = generatePrivateKey()
+		if err != nil {
+			return err
+		}
 	} else {
-		topics, ok := z.topics[topic]
-		if !ok {
-			fmt.Println(z.topics)
-			// handle error: no such topic
-			return nil
-		}
-		peers = topics.ListPeers()
-	}
-	peerList := make([]string, len(peers))
-	for i, peer := range peers {
-		peerList[i] = peer.String()
-	}
-	return peerList
-}
-
-type OpType int
-
-const (
-	ControlOp OpType = iota
-	UploadOp
-	DownloadOp
-)
-
-var ctrSocketType = protocol.ID("/zomeCtrSocket/1.0.0")
-var dlSocketType = protocol.ID("/zomeDlSocket/1.0.0")
-var ulSocketType = protocol.ID("/zomeUlSocket/1.0.0")
-
-func (z *Zstate) ConnectServer(topic, peerId string, optype OpType) any {
-	// find peer by ID
-	if _, ok := z.topics[topic]; !ok {
-		fmt.Println("Topic not found") //TODO: switch out for logger
-		return nil
-	}
-
-	peers := z.host.Peerstore().Peers()
-	var peerAddr peer.ID
-	for _, peer := range peers {
-		if peer.String() == peerId {
-			peerAddr = peer
-		}
-	}
-	peerinfo := z.host.Peerstore().PeerInfo(peerAddr)
-
-	switch optype {
-	// ADmin routes
-	case ControlOp:
-		// open stream to peer
-		stream, err := z.host.NewStream(z.ctx, peerinfo.ID, ctrSocketType)
+		pkeyUnmarshalled, err = crypto.UnmarshalPrivateKey([]byte(privateKey))
 		if err != nil {
-			fmt.Println(err)
-			return nil
+			return err
 		}
-		return ZomeController{stream}
-	case UploadOp:
-		// open stream to peer
-		stream, err := z.host.NewStream(z.ctx, peerinfo.ID, ulSocketType)
-		if err != nil {
-			fmt.Println(err)
-			return nil
-		}
-		return ZomeUploader{stream} //TODO: how to make em all extend one type
-	case DownloadOp:
-		// open stream to peer
-		stream, err := z.host.NewStream(z.ctx, peerinfo.ID, dlSocketType)
-		if err != nil {
-			fmt.Println(err)
-			return nil
-		}
-		return ZomeDownloader{stream}
-	default:
-		fmt.Println("Improper operation type")
-		return nil
 	}
-}
 
-func (z *Zstate) initDHT() *dht.IpfsDHT {
-	// Start a DHT, for use in peer discovery. We can't just make a new DHT
-	// client because we want each peer to maintain its own local copy of the
-	// DHT, so that the bootstrapping node of the DHT can go down without
-	// inhibiting future peer discovery.
-	kademliaDHT, err := dht.New(z.ctx, z.host)
+	zstate = zcrypto.Zstate{
+		Ctx: ctx,
+	}
+	err = zstate.InitP2P(pkeyUnmarshalled)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	if err = kademliaDHT.Bootstrap(z.ctx); err != nil {
-		panic(err)
-	}
-	var wg sync.WaitGroup
-	for _, peerAddr := range dht.DefaultBootstrapPeers {
-		peerinfo, _ := peer.AddrInfoFromP2pAddr(peerAddr)
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := z.host.Connect(z.ctx, *peerinfo); err != nil {
-				fmt.Println("Bootstrap warning:", err)
-			}
-		}()
-	}
-	wg.Wait()
+	defer zstate.Close()
 
-	return kademliaDHT
+	err = zstate.AddCommTopic(topicName, func(msg *pubsub.Message) {
+		fmt.Println("Received message: ", string(msg.Data))
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (z *Zstate) discoverPeers(topicFlag string) {
-	kademliaDHT := z.initDHT()
-	routingDiscovery := drouting.NewRoutingDiscovery(kademliaDHT)
-	dutil.Advertise(z.ctx, routingDiscovery, topicFlag)
-
-	// Look for others who have announced and attempt to connect to them
-	anyConnected := false
-	for !anyConnected {
-		fmt.Println("Searching for peers...")
-		peerChan, err := routingDiscovery.FindPeers(z.ctx, topicFlag)
-		if err != nil {
-			panic(err)
-		}
-		for peer := range peerChan {
-			if peer.ID == z.host.ID() {
-				continue // No self connection
-			}
-			err := z.host.Connect(z.ctx, peer)
-			if err != nil {
-				fmt.Printf("Failed connecting to %s, error: %s\n", peer.ID, err)
-			} else {
-				fmt.Println("Connected to:", peer.ID)
-				anyConnected = true
-			}
-		}
+func generatePrivateKey() (crypto.PrivKey, error) {
+	priv, _, err := crypto.GenerateKeyPair(crypto.Ed25519, 1)
+	if err != nil {
+		return nil, err
 	}
-	fmt.Println("Peer discovery complete")
+	return priv, nil
 }
 
-func (z *Zstate) streamConsoleTo(topic *pubsub.Topic) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+func GetSelfId(topic string) string {
+	return zstate.SelfId(topic)
+}
 
+func ListPeers() []zcrypto.CleanPeer {
+	return zstate.ConnectedPeersClean([]string{})
+}
+
+func ConnectServer(topic, peerId string) (ZomeController, error) {
+	stream, err := zstate.DirectConnect(topic, peerId)
+	if err != nil {
+		return ZomeController{}, err
+	}
+	return ZomeController{socket: stream}, nil
+}
+
+func WaitForConnection(topicName, peerId string) (ZomeController, error) {
 	for {
 		select {
-		case <-z.ctx.Done():
-			return
-		case <-ticker.C:
-			println("SENDping")
-			if err := topic.Publish(z.ctx, []byte("ping")); err != nil {
-				fmt.Println("### Publish error:", err)
+		case <-zstate.Ctx.Done():
+			return ZomeController{}, fmt.Errorf("context done")
+		default:
+			peerList := ListPeers()
+			//check if peer is in list
+			pidFound := false
+			for _, p := range peerList {
+				if p.ID == peerId {
+					pidFound = true
+				}
 			}
+			if len(peerList) != 0 && pidFound {
+				fmt.Println(peerList)
+				return ConnectServer(topicName, peerId)
+			}
+			//loop sending info
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
-}
-
-func (z *Zstate) printMessagesFrom(sub *pubsub.Subscription) {
-	for {
-		m, err := sub.Next(z.ctx)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println(m.ReceivedFrom, ": ", string(m.Message.Data))
-	}
-}
-
-func (z *Zstate) SelfId(topic string) string {
-	return string(z.host.ID())
-}
-
-func (z *Zstate) Close() {
-	for _, topic := range z.topics {
-		topic.Close()
-	}
-	z.host.Close()
 }
 
 func genericRequest(ns network.Stream, routeName string, inputJson interface{}) (interface{}, error) {
@@ -286,4 +151,4 @@ func genericRequest(ns network.Stream, routeName string, inputJson interface{}) 
 	return unmarshalledResponse.Status, nil
 }
 
-var genericTypeError = fmt.Errorf("invalid response type")
+var errGenericType = fmt.Errorf("invalid response type")

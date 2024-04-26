@@ -9,17 +9,18 @@ import (
 	ds "github.com/ipfs/go-datastore"
 	libzome "github.com/jaketrock/zome/libZome"
 	"github.com/jaketrock/zome/zcrypto"
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 )
 
 type testContext struct {
 	app        *App
 	path       string
 	originBase string
-	libZome    *libzome.Zstate
 	servConn   libzome.ZomeController
 }
 
 const testPathBase = "./testPath"
+const unifiedTopic = "zomeUnitTests"
 
 var firstApp = testContext{
 	app:  &App{},
@@ -34,26 +35,39 @@ var secondApp = testContext{
 func (tc *testContext) setupSuite() error {
 	if tc.app.startTime.IsZero() {
 		os.RemoveAll(path.Join(tc.path, "zome"))
-		tc.app.Startup(map[string]string{"configPath": tc.path})
-		tc.app.InitP2P()
+		pathOverride := map[string]string{"configPath": tc.path}
+		tc.app.Startup(pathOverride)
+		topic := tc.app.retrieveTopic(unifiedTopic)
+
+		zstate := zcrypto.Zstate{
+			Ctx: tc.app.ctx,
+		}
+		err := zstate.InitP2P(tc.app.privateKey)
+		if err != nil {
+			tc.app.Logger.Fatal(err)
+		}
+		tc.app.network = &zstate
+		defer zstate.Close()
+
+		//TODO: multiretrieve
+		zstate.AddCommTopic(topic, func(msg *pubsub.Message) {
+			tc.app.Logger.Info("Received message: ", string(msg.Data))
+		})
+
+		cancelComms, err := tc.app.initCRDT(topic)
+		if err != nil {
+			tc.app.Logger.Fatal(err)
+		}
+		defer cancelComms()
+
 		tc.app.initInterface()
 
-		ctpk := tc.app.connTopic.String()
-		tc.libZome = &libzome.Zstate{}
-		tc.libZome.Initialize(ctpk)
-		peerList := tc.libZome.ListPeers(ctpk)
-		if len(peerList) == 0 {
-			return fmt.Errorf("no peers found") //TODO: not mating?
-		}
-		var exists bool
-		tc.servConn, exists = tc.libZome.ConnectServer(ctpk, peerList[0], libzome.ControlOp).(libzome.ZomeController)
-		if !exists {
-			return fmt.Errorf("no connection found")
-		}
-		spid := tc.libZome.SelfId(ctpk)
+		libzome.Initialize(topic, "")
+
+		spid := libzome.GetSelfId(topic)
 		tc.originBase = spid
 		//enable fs and s3 global write
-		err := tc.app.store.Put(tc.app.ctx, ds.NewKey(spid+"]-FACL"), []byte{1})
+		err = tc.app.store.Put(tc.app.ctx, ds.NewKey(spid+"]-FACL"), []byte{1})
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -61,6 +75,11 @@ func (tc *testContext) setupSuite() error {
 		if err != nil {
 			fmt.Println(err)
 		}
+		zc, err := libzome.WaitForConnection(topic, spid)
+		if err != nil {
+			tc.app.Logger.Fatal(err)
+		}
+		tc.servConn = zc
 	}
 	return nil
 }

@@ -50,17 +50,17 @@ func (a *App) checkApprovedPeer(socket network.Stream, streamPipe func(peerConn)
 func (a *App) initInterface() {
 	// listen for new connections on ctrSocket protocol
 	ctrSocket := protocol.ID("/zomeCtrSocket/1.0.0")
-	a.host.SetStreamHandler(ctrSocket, func(socket network.Stream) {
+	a.network.Host.SetStreamHandler(ctrSocket, func(socket network.Stream) {
 		a.checkApprovedPeer(socket, a.routeControl)
 	})
-	dlSocket := protocol.ID("/zomeDlSocket/1.0.0")
-	a.host.SetStreamHandler(dlSocket, func(socket network.Stream) {
-		a.checkApprovedPeer(socket, a.routeDownload)
-	})
-	ulSocket := protocol.ID("/zomeUlSocket/1.0.0")
-	a.host.SetStreamHandler(ulSocket, func(socket network.Stream) {
-		a.checkApprovedPeer(socket, a.routeUpload)
-	})
+	// dlSocket := protocol.ID("/zomeDlSocket/1.0.0")
+	// a.network.Host.SetStreamHandler(dlSocket, func(socket network.Stream) {
+	// 	a.checkApprovedPeer(socket, a.routeDownload)
+	// })
+	// ulSocket := protocol.ID("/zomeUlSocket/1.0.0")
+	// a.network.Host.SetStreamHandler(ulSocket, func(socket network.Stream) {
+	// 	a.checkApprovedPeer(socket, a.routeUpload)
+	// })
 }
 
 type peerConn struct {
