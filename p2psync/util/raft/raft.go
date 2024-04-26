@@ -2,14 +2,6 @@
 
 package raft
 
-//TODO: this file no longer replicates correctly
-// to test:
-// make runThreeNodes
-//make clientImport
-//make hashCheck
-// ^ all hashes don't match here!
-//make killAll
-
 import (
 	"log"
 	"net"
@@ -38,6 +30,10 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"google.golang.org/protobuf/proto"
+)
+
+const (
+	port = ":50051"
 )
 
 // Enum for the possible server states.
@@ -108,23 +104,23 @@ type RpcEvent struct {
 
 // Type for request vote rpc event.
 type RaftRequestVoteRpcEvent struct {
-	request *pb.RequestVoteRequest
+	request pb.RequestVoteRequest
 	// Channel for event loop to communicate back response to client.
-	responseChan chan<- *pb.RequestVoteResponse
+	responseChan chan<- pb.RequestVoteResponse
 }
 
 // Type for append entries rpc event.
 type RaftAppendEntriesRpcEvent struct {
-	request *pb.AppendEntriesRequest
+	request pb.AppendEntriesRequest
 	// Channel for event loop to communicate back response to client.
-	responseChan chan<- *pb.AppendEntriesResponse
+	responseChan chan<- pb.AppendEntriesResponse
 }
 
 // Type for client command rpc event.
 type RaftClientCommandRpcEvent struct {
-	request *pb.ClientCommandRequest
+	request pb.ClientCommandRequest
 	// Channel for event loop to communicate back response to client.
-	responseChan chan<- *pb.ClientCommandResponse
+	responseChan chan<- pb.ClientCommandResponse
 }
 
 // Contains all the inmemory state needed by the Raft algorithm
@@ -137,7 +133,7 @@ type RaftState struct {
 type RaftPersistentState struct {
 	currentTerm int64
 	votedFor    string
-	log         []*pb.DiskLogEntry
+	log         []pb.DiskLogEntry
 }
 
 type RaftVolatileState struct {
@@ -173,13 +169,13 @@ type RaftConfig struct {
 }
 
 // Raft Persistent State accessors / getters / functions.
-func GetPersistentRaftLog() []*pb.DiskLogEntry {
+func GetPersistentRaftLog() []pb.DiskLogEntry {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 	return raftServer.raftState.persistentState.log
 }
 
-func GetPersistentRaftLogEntryAt(index int64) *pb.DiskLogEntry {
+func GetPersistentRaftLogEntryAt(index int64) pb.DiskLogEntry {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 	return raftServer.raftState.persistentState.log[index]
@@ -336,17 +332,17 @@ func SetPersistentCurrentTermLocked(newValue int64) {
 	raftServer.raftState.persistentState.currentTerm = newValue
 }
 
-func AddPersistentLogEntry(newValue *pb.LogEntry) {
+func AddPersistentLogEntry(newValue pb.LogEntry) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	AddPersistentLogEntryLocked(newValue)
 }
 
-func AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
+func AddPersistentLogEntryLocked(newValue pb.LogEntry) {
 	nextIndex := int64(len(raftServer.raftState.persistentState.log)) + 1
 	diskEntry := pb.DiskLogEntry{
-		LogEntry: newValue,
+		LogEntry: &newValue,
 		LogIndex: nextIndex,
 	}
 
@@ -360,12 +356,11 @@ func AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
 		log.Fatalf("Failed to prepare sql statement to add log entry. err: %v", err)
 	}
 	defer statement.Close()
-	protoByte, err := proto.Marshal(newValue)
+	protoByte, err := proto.Marshal(&newValue)
 	if err != nil {
 		log.Fatalf("Failed to marshal log entry proto. err: %v", err)
 	}
-	protoByteText := string(protoByte)
-	_, err = statement.Exec(nextIndex, protoByteText)
+	_, err = statement.Exec(nextIndex, string(protoByte))
 	if err != nil {
 		log.Fatalf("Failed to execute sql statement to add log entry. err: %v", err)
 	}
@@ -374,7 +369,7 @@ func AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
 		log.Fatalf("Failed to commit tx to add log entry. err: %v", err)
 	}
 
-	raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log, &diskEntry)
+	raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log, diskEntry)
 }
 
 func DeletePersistentLogEntryInclusive(startDeleteLogIndex int64) {
@@ -410,7 +405,7 @@ func DeletePersistentLogEntryInclusiveLocked(startDeleteLogIndex int64) {
 
 	// Finally update the in-memory state.
 	zeroBasedDeleteIndex := startDeleteLogIndex - 1
-	raftServer.raftState.persistentState.log = raftServer.raftState.persistentState.log[:zeroBasedDeleteIndex]
+	raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log[:zeroBasedDeleteIndex])
 }
 
 func IncrementPersistentCurrentTerm() {
@@ -461,11 +456,11 @@ func SetLeaderId(newVal string) {
 
 // AppendEntries implementation for pb.RaftServer
 func (s *Server) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
-	replyChan := make(chan *pb.AppendEntriesResponse)
+	replyChan := make(chan pb.AppendEntriesResponse)
 	event := Event{
 		rpc: RpcEvent{
 			appendEntries: &RaftAppendEntriesRpcEvent{
-				request:      proto.Clone(in).(*pb.AppendEntriesRequest),
+				request:      *in,
 				responseChan: replyChan,
 			},
 		},
@@ -473,16 +468,16 @@ func (s *Server) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest)
 	raftServer.events <- event
 
 	result := <-replyChan
-	return result, nil
+	return &result, nil
 }
 
 // RequestVote implementation for raft.RaftServer
 func (s *Server) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
-	replyChan := make(chan *pb.RequestVoteResponse)
+	replyChan := make(chan pb.RequestVoteResponse)
 	event := Event{
 		rpc: RpcEvent{
 			requestVote: &RaftRequestVoteRpcEvent{
-				request:      proto.Clone(in).(*pb.RequestVoteRequest),
+				request:      *in,
 				responseChan: replyChan,
 			},
 		},
@@ -490,16 +485,16 @@ func (s *Server) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*p
 	raftServer.events <- event
 
 	result := <-replyChan
-	return result, nil
+	return &result, nil
 }
 
 // Client Command implementation for raft.RaftServer
 func (s *Server) ClientCommand(ctx context.Context, in *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
-	replyChan := make(chan *pb.ClientCommandResponse)
+	replyChan := make(chan pb.ClientCommandResponse)
 	event := Event{
 		rpc: RpcEvent{
 			clientCommand: &RaftClientCommandRpcEvent{
-				request:      proto.Clone(in).(*pb.ClientCommandRequest),
+				request:      *in,
 				responseChan: replyChan,
 			},
 		},
@@ -507,7 +502,7 @@ func (s *Server) ClientCommand(ctx context.Context, in *pb.ClientCommandRequest)
 	raftServer.events <- event
 
 	result := <-replyChan
-	return result, nil
+	return &result, nil
 }
 
 // Specification for a node
@@ -548,9 +543,7 @@ func StartServer(localNode Node, otherNodes []Node) *grpc.Server {
 	util.Log(util.DebugLevel, "Created Raft server at: %v", lis.Addr().String())
 	s := grpc.NewServer()
 	raftServer = GetInitialServer()
-
-	log.Printf("Initial Server state: %v", raftServer.serverState)
-
+	log.Printf("Initial Server state: %v", raftServer)
 	pb.RegisterRaftServer(s, raftServer)
 	// Register reflection service on gRPC server.
 	reflection.Register(s)
@@ -816,7 +809,7 @@ func LoadPersistentLog() {
 			LogEntry: &parsedLogEntry,
 		}
 
-		raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log, &diskLogEntry)
+		raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log, diskLogEntry)
 	}
 }
 
@@ -839,7 +832,7 @@ func MoveCommitIndexTo(newIndex int64) {
 	commands := raftLog[startCommitIndexZeroBased+1 : newCommitIndexZeroBased+1]
 	for _, cmd := range commands {
 		if newCommitIndex > GetLastApplied() {
-			util.Log(util.INFO, "Applying log entry: %v", cmd.String())
+			util.Log(util.INFO, "Applying log entry: %v", cmd)
 			ApplySqlCommand(cmd.LogEntry.Data)
 			SetLastApplied(cmd.LogIndex)
 		}
@@ -1043,7 +1036,7 @@ func handleClientCommandRpc(event *RaftClientCommandRpcEvent) {
 		util.Log(util.WARN, "Rejecting client command because not leader")
 		result.ResponseStatus = uint32(codes.FailedPrecondition)
 		result.NewLeaderId = GetLeaderId()
-		event.responseChan <- &result
+		event.responseChan <- result
 		return
 	}
 
@@ -1056,7 +1049,7 @@ func handleClientCommandRpc(event *RaftClientCommandRpcEvent) {
 		result := pb.ClientCommandResponse{}
 		util.Log(util.WARN, "Invalid client command (not command/query): %v", event)
 		result.ResponseStatus = uint32(codes.InvalidArgument)
-		event.responseChan <- &result
+		event.responseChan <- result
 		return
 	}
 
@@ -1073,7 +1066,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 		util.Log(util.WARN, "Sql query error: %v", err)
 		result.ResponseStatus = uint32(codes.Aborted)
 		result.QueryResponse = err.Error()
-		event.responseChan <- &result
+		event.responseChan <- result
 		return
 	}
 	defer rows.Close()
@@ -1083,7 +1076,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 		util.Log(util.WARN, "Sql cols query error: %v", err)
 		result.ResponseStatus = uint32(codes.Aborted)
 		result.QueryResponse = err.Error()
-		event.responseChan <- &result
+		event.responseChan <- result
 		return
 	}
 
@@ -1091,7 +1084,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 
 	rawData := make([][]byte, len(columns))
 	tempData := make([]interface{}, len(columns))
-	for i := range rawData {
+	for i, _ := range rawData {
 		tempData[i] = &rawData[i]
 	}
 
@@ -1117,7 +1110,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 	result.QueryResponse = buf.String()
 
 	result.ResponseStatus = uint32(codes.OK)
-	event.responseChan <- &result
+	event.responseChan <- result
 
 }
 
@@ -1139,7 +1132,7 @@ func handleClientMutateCommand(event *RaftClientCommandRpcEvent) {
 		util.Log(util.ERROR, "Failed to replicate command")
 		result.ResponseStatus = uint32(codes.Aborted)
 	}
-	event.responseChan <- &result
+	event.responseChan <- result
 }
 
 // Applies the command to the local state machine. For us this, this is to apply the
@@ -1218,7 +1211,7 @@ func IssueAppendEntriesRpcToMajorityNodes(event *RaftClientCommandRpcEvent) bool
 }
 
 // Issues an append entries rpc to given raft client and returns true upon success
-func IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.RaftClient) bool {
+func IssueAppendEntriesRpcToNode(request pb.ClientCommandRequest, client pb.RaftClient) bool {
 	if !IsLeader() {
 		return false
 	}
@@ -1236,7 +1229,7 @@ func IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.Raf
 
 	appendEntryRequest.Entries = append(appendEntryRequest.Entries, &newEntry)
 
-	util.Log(util.INFO, "Sending appending entry RPC: %v", appendEntryRequest.String())
+	util.Log(util.INFO, "Sending appending entry RPC: %v", appendEntryRequest)
 	result, err := client.AppendEntries(context.Background(), &appendEntryRequest)
 	if err != nil {
 		util.Log(util.ERROR, "Error issuing append entry to node: %v err:%v", client, err)
@@ -1247,7 +1240,7 @@ func IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.Raf
 		return false
 	}
 
-	util.Log(util.INFO, "AppendEntry Response from node: %v response: %v", client, result.String())
+	util.Log(util.INFO, "AppendEntry Response from node: %v response: %v", client, *result)
 	if result.Term > RaftCurrentTerm() {
 		ChangeToFollowerIfTermStale(result.Term)
 		return false
@@ -1271,7 +1264,7 @@ func appendCommandToLocalLog(event *RaftClientCommandRpcEvent) {
 		Data: event.request.Command,
 		Term: currentTerm,
 	}
-	AddPersistentLogEntry(&newLogEntry)
+	AddPersistentLogEntry(newLogEntry)
 }
 
 // Handles request vote rpc.
@@ -1312,7 +1305,7 @@ func handleRequestVoteRpc(event *RaftRequestVoteRpcEvent) {
 		util.Log(util.INFO, "Grant vote to other server (%v) at term: %v ? %v", event.request.CandidateId, currentTerm, result.VoteGranted)
 	}
 	result.ResponseStatus = uint32(codes.OK)
-	event.responseChan <- &result
+	event.responseChan <- result
 }
 
 // Heartbeat sent by leader. Special case of Append Entries with no log entries.
@@ -1335,7 +1328,7 @@ func handleHeartBeatRpc(event *RaftAppendEntriesRpcEvent) {
 	}
 
 	result.Success = true
-	event.responseChan <- &result
+	event.responseChan <- result
 }
 
 // Handles append entries rpc.
@@ -1356,7 +1349,7 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		result.Term = currentTerm
 		result.ResponseStatus = uint32(codes.OK)
 		result.Success = false
-		event.responseChan <- &result
+		event.responseChan <- result
 		return
 	}
 
@@ -1367,7 +1360,7 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 	}
 
 	// Otherwise process regular append entries rpc (receiver impl).
-	util.Log(util.INFO, "Processing received AppendEntry rpc: %v", event.request.String())
+	util.Log(util.INFO, "Processing received AppendEntry rpc: %v", event.request)
 	if len(event.request.Entries) > 1 {
 		util.Log(util.WARN, "Server sent more than one log entry in append entries rpc")
 	}
@@ -1388,18 +1381,18 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		if !containsEntryAtPrevLogIndex {
 			util.Log(util.INFO, "Rejecting append entries rpc because we don't have previous log entry at index: %v", prevLogIndex)
 			result.Success = false
-			event.responseChan <- &result
+			event.responseChan <- result
 			return
 		}
 		// So, we have an entry at that position. Confirm that the terms match.
 		// We want to reply false if the terms do not match at that position.
 		prevLogIndexZeroBased := prevLogIndex - 1 // -1 because log index is 1-based.
-		ourLogEntryTerm := raftLog[prevLogIndexZeroBased].LogEntry.Term
-		entryTermsMatch := ourLogEntryTerm == prevLogTerm
+		ourLogEntry := raftLog[prevLogIndexZeroBased]
+		entryTermsMatch := ourLogEntry.LogEntry.Term == prevLogTerm
 		if !entryTermsMatch {
-			util.Log(util.INFO, "Rejecting append entries rpc because log terms don't match. Ours: %v, theirs: %v", ourLogEntryTerm, prevLogTerm)
+			util.Log(util.INFO, "Rejecting append entries rpc because log terms don't match. Ours: %v, theirs: %v", ourLogEntry.LogEntry.Term, prevLogTerm)
 			result.Success = false
-			event.responseChan <- &result
+			event.responseChan <- result
 			return
 		}
 	}
@@ -1410,15 +1403,15 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 	containsEntryAtNewLogIndex := newLogIndex <= int64(len(raftLog))
 	if containsEntryAtNewLogIndex {
 		// Check whether we have a conflict (terms differ).
-		ourEntryTerm := raftLog[newLogIndexZeroBased].LogEntry.Term
+		ourEntry := raftLog[newLogIndexZeroBased]
 		theirEntry := newEntry
 
-		haveConflict := ourEntryTerm != theirEntry.Term
+		haveConflict := ourEntry.LogEntry.Term != theirEntry.Term
 		if haveConflict {
 			// We must make our logs match the leader. Thus, we need to delete
 			// all our entries starting from the new entry position.
 			DeletePersistentLogEntryInclusive(newLogIndex)
-			AddPersistentLogEntry(newEntry)
+			AddPersistentLogEntry(*newEntry)
 			result.Success = true
 		} else {
 			// We do not need to add any new entries to our log, because existing
@@ -1427,7 +1420,7 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		}
 	} else {
 		// We need to insert new entry into the log.
-		AddPersistentLogEntry(newEntry)
+		AddPersistentLogEntry(*newEntry)
 		result.Success = true
 
 	}
@@ -1439,7 +1432,7 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		MoveCommitIndexTo(newCommitIndex)
 	}
 
-	event.responseChan <- &result
+	event.responseChan <- result
 }
 
 func min(a, b int64) int64 {
@@ -1473,13 +1466,13 @@ func GetLastLogIndexLocked() int64 {
 	if len(raftLog) <= 0 {
 		return 0
 	}
-	lastItem := raftLog[len(raftLog)-1].LogIndex
+	lastItem := raftLog[len(raftLog)-1]
 
-	if lastItem != int64(len(raftLog)) {
+	if lastItem.LogIndex != int64(len(raftLog)) {
 		// TODO: Remove this sanity check ...
-		log.Fatalf("Mismatch between stored log index value and # of entries. Last stored log index: %v num entries: %v ", lastItem, len(raftLog))
+		log.Fatalf("Mismatch between stored log index value and # of entries. Last stored log index: %v num entries: %v ", lastItem.LogIndex, len(raftLog))
 	}
-	return lastItem
+	return lastItem.LogIndex
 }
 
 // Returns the term for the last entry in the raft log.
@@ -1495,8 +1488,9 @@ func GetLastLogTermLocked() int64 {
 	if len(raftLog) <= 0 {
 		return 0
 	}
+	lastItem := raftLog[len(raftLog)-1]
 
-	return raftLog[len(raftLog)-1].LogEntry.Term
+	return lastItem.LogEntry.Term
 }
 
 // Updates raft current term to a new one.
@@ -1568,7 +1562,7 @@ func RequestVoteFromNode(node pb.RaftClient) {
 		util.Log(util.ERROR, "Error with vote rpc entry to node: %v response code:%v", node, result.ResponseStatus)
 		return
 	}
-	util.Log(util.INFO, "Vote response: %v", result.ResponseStatus)
+	util.Log(util.INFO, "Vote response: %v", *result)
 	if result.VoteGranted {
 		IncrementVoteCount()
 	}
@@ -1636,7 +1630,6 @@ func CandidateLoop() {
 		util.Log(util.INFO, "Potential split votes/not enough votes. Performing Randomized wait.")
 		timeoutTimer := RandomizedElectionTimeout()
 		timeoutDone := false
-	CandidateLoop:
 		for {
 			// While processing RPCs below, we may convert from candidate status to follower
 			if GetServerState() != Candidate {
@@ -1656,7 +1649,9 @@ func CandidateLoop() {
 			case event := <-raftServer.events:
 				handleRpcEvent(event)
 			case <-timeoutTimer.C:
-				break CandidateLoop
+				timeoutDone = true
+				break
+
 			}
 		}
 	}
@@ -1673,14 +1668,14 @@ func ReinitVolatileLeaderState() {
 	// Reset match index to 0.
 	numOtherNodes := len(GetOtherNodes())
 	volatileLeaderState.matchIndex = make([]int64, numOtherNodes)
-	for i := range volatileLeaderState.matchIndex {
+	for i, _ := range volatileLeaderState.matchIndex {
 		volatileLeaderState.matchIndex[i] = 0
 	}
 
 	// Reset next index to leader last log index + 1.
 	newVal := GetLastLogIndex() + 1
 	volatileLeaderState.nextIndex = make([]int64, numOtherNodes)
-	for i := range volatileLeaderState.nextIndex {
+	for i, _ := range volatileLeaderState.nextIndex {
 		volatileLeaderState.nextIndex[i] = newVal
 	}
 	util.Log(util.INFO, "After init: nextIndex len: %v", len(raftServer.raftState.volatileLeaderState.nextIndex))
@@ -1783,7 +1778,10 @@ func LeaderLoop() {
 			util.Log(util.INFO, "Stopping leader loop")
 			return
 		}
-		handleRpcEvent(<-raftServer.events)
+		select {
+		case event := <-raftServer.events:
+			handleRpcEvent(event)
+		}
 	}
 }
 
@@ -1943,7 +1941,7 @@ func SendHeartBeatRpc(node pb.RaftClient) {
 		util.Log(util.ERROR, "Error sending hearbeat to node: %v Error: %v", node, err)
 		return
 	}
-	util.Log(util.VERBOSE, "Heartbeat RPC Response from node: %v Response: %v", node, result.ResponseStatus)
+	util.Log(util.VERBOSE, "Heartbeat RPC Response from node: %v Response: %v", node, *result)
 }
 
 // PrevLogTerm value  used in the appendentries rpc request. Should be called _after_ local local updated.
