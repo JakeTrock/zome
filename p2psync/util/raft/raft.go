@@ -2,6 +2,14 @@
 
 package raft
 
+//TODO: this file no longer replicates correctly
+// to test:
+// make runThreeNodes
+//make clientImport
+//make hashCheck
+// ^ all hashes don't match here!
+//make killAll
+
 import (
 	"log"
 	"net"
