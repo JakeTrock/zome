@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 
 	ipfslite "github.com/hsanjuan/ipfs-lite"
 
+	"github.com/jaketrock/zome/zcrypto"
 	multiaddr "github.com/multiformats/go-multiaddr"
 )
 
@@ -23,20 +25,20 @@ func (a *App) InitP2P() {
 
 	var listen, err = multiaddr.NewMultiaddr("/ip4/0.0.0.0/tcp/33123")
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
-	herdTopicKey := ds.NewKey("herdTopic")
-	herdTopic, err := a.store.Get(a.ctx, herdTopicKey)
+	hTopic := "herdTopic"
+	herdTopic, err := a.secureInternalKeyGet(hTopic)
 	topicName := string(herdTopic)
 	if err != nil && err != ds.ErrNotFound {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	} else if err == ds.ErrNotFound {
 		randomUUID := cuid.New()
 
-		err = a.store.Put(a.ctx, herdTopicKey, []byte(randomUUID))
+		err = a.secureInternalKeyAdd(hTopic, []byte(randomUUID))
 		if err != nil {
-			logger.Fatal(err)
+			a.Logger.Fatal(err)
 		}
 		topicName = randomUUID
 	}
@@ -53,24 +55,24 @@ func (a *App) InitP2P() {
 		ipfslite.Libp2pOptionsExtra...,
 	)
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 	defer h.Close()
 	defer dht.Close()
 
 	psub, err := pubsub.NewGossipSub(a.ctx, h)
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	topic, err := psub.Join(topicName + "-znet")
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	netSubs, err := topic.Subscribe()
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	// Use a special pubsub topic to avoid disconnecting
@@ -79,7 +81,7 @@ func (a *App) InitP2P() {
 		for {
 			msg, err := netSubs.Next(a.ctx)
 			if err != nil {
-				logger.Info(err)
+				a.Logger.Info(err)
 				break
 			}
 			h.ConnManager().TagPeer(msg.ReceivedFrom, "keep", 100)
@@ -107,13 +109,13 @@ func (a *App) InitP2P() {
 			default:
 				// send this out less frequently
 				h.Peerstore().Put(a.peerId, "start", a.startTime.String())
-				dataDirSize, err := DirSize(a.operatingPath)
+				dataDirSize, err := zcrypto.DirSize(a.operatingPath)
 				if err != nil {
-					logger.Error(err)
+					a.Logger.Error(err)
 				}
 				dbSize, err := ds.DiskUsage(a.ctx, a.store)
 				if err != nil {
-					logger.Error(err)
+					a.Logger.Error(err)
 				}
 				h.Peerstore().Put(a.peerId, "space", strconv.FormatInt(dataDirSize+int64(dbSize), 10))
 
@@ -124,33 +126,33 @@ func (a *App) InitP2P() {
 
 	ipfs, err := ipfslite.New(a.ctx, a.store, nil, h, dht, nil)
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	psubctx, psubCancel := context.WithCancel(a.ctx)
 	pubsubBC, err := crdt.NewPubSubBroadcaster(psubctx, psub, topicName)
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	opts := crdt.DefaultOptions()
-	opts.Logger = logger
+	opts.Logger = a.Logger
 	opts.RebroadcastInterval = 5 * time.Second
 	opts.PutHook = func(k ds.Key, v []byte) {
-		logger.Info("Added: [%s] -> %s\n", k, string(v))
+		a.Logger.Info("Added: [%s] -> %s\n", k, string(v))
 	}
 	opts.DeleteHook = func(k ds.Key) {
-		logger.Info("Removed: [%s]\n", k)
+		a.Logger.Info("Removed: [%s]\n", k)
 	}
 
 	crdt, err := crdt.New(a.store, ds.NewKey("crdt"), ipfs, pubsubBC, opts)
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 	defer crdt.Close()
 	defer psubCancel()
 
-	logger.Info("Bootstrapping...")
+	a.Logger.Info("Bootstrapping...")
 
 	//TODO: what the hell is this?
 	bstr, _ := multiaddr.NewMultiaddr("/ip4/94.130.135.167/tcp/33123/ipfs/12D3KooWFta2AE7oiK1ioqjVAKajUJauZWfeM7R413K7ARtHRDAu")
@@ -158,7 +160,7 @@ func (a *App) InitP2P() {
 	list := append(ipfslite.DefaultBootstrapPeers(), *inf)
 	ipfs.Bootstrap(list)
 	h.ConnManager().TagPeer(inf.ID, "keep", 100)
-	logger.Infof(`
+	a.Logger.Infof(`
 Peer ID: %s
 Listen address: %s
 Topic: %s
@@ -169,7 +171,7 @@ Data Folder: %s
 
 	a.host = h
 
-	a.restrictedTopic = topic
+	a.connTopic = topic
 }
 
 type cleanPeer struct {
@@ -191,7 +193,8 @@ func connectedPeersClean(h host.Host) []cleanPeer {
 func getOnePeerInfo(h host.Host, peerID peer.ID) cleanPeer {
 	name, err := h.Peerstore().Get(peerID, "name")
 	if err != nil {
-		logger.Error(err)
+		//TODO: bad that this falls thru the crax?
+		log.Println(err)
 	}
 	uname := "UNERR"
 	if name, ok := name.(string); ok {
@@ -199,7 +202,7 @@ func getOnePeerInfo(h host.Host, peerID peer.ID) cleanPeer {
 	}
 	startTime, err := h.Peerstore().Get(peerID, "start")
 	if err != nil {
-		logger.Error(err)
+		log.Println(err)
 	}
 	uptime := "UTERR"
 	if startTime, ok := startTime.(time.Time); ok {
@@ -207,7 +210,8 @@ func getOnePeerInfo(h host.Host, peerID peer.ID) cleanPeer {
 	}
 	space, err := h.Peerstore().Get(peerID, "space")
 	if err != nil {
-		logger.Error(err)
+		//log to host
+		log.Println(err)
 	}
 	spaceStr := "SPERR"
 	if space, ok := space.(string); ok {

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -13,12 +12,16 @@ import (
 	"time"
 
 	ds "github.com/ipfs/go-datastore"
+
+	"github.com/adrg/xdg"
+	si "github.com/jaketrock/zome/sharedInterfaces"
+	"github.com/jaketrock/zome/zcrypto"
+	crypto "github.com/libp2p/go-libp2p/core/crypto"
+
 	badger "github.com/ipfs/go-ds-badger"
 	logging "github.com/ipfs/go-log/v2"
 
-	"github.com/adrg/xdg"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	crypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -26,23 +29,19 @@ import (
 const name = "zome"
 const zomeVersion = "0.0.1"
 
-var logger = logging.Logger("globalLogs")
-
 type App struct {
 	ctx           context.Context
 	operatingPath string
 	startTime     time.Time
+	Logger        *logging.ZapEventLogger
 
-	dbCryptKey      []byte
-	store           *badger.Datastore
-	host            host.Host
-	restrictedTopic *pubsub.Topic //all of your zome nodes share across this topic
-	publicTopic     *pubsub.Topic //all of your app nodes share across this topic
-	//TODO: add key listing of all peers in public topic, restricted topic
-	//TODO: add listing of "friend" topics with which you share data, do this after you've developed the gui/file mgmt sys
+	dbCryptKey []byte
+	store      *badger.Datastore
+	host       host.Host
+	connTopic  *pubsub.Topic //all of your zome nodes share across this topic
 
-	fsActiveWrites map[string]UploadHeader //TODO: reading and writing to maps is not threadsafe
-	fsActiveReads  map[string]DownloadHeader
+	fsActiveWrites map[string]si.UploadHeader //TODO: reading and writing to maps is not threadsafe
+	fsActiveReads  map[string]si.DownloadHeader
 
 	peerId     peer.ID
 	privateKey crypto.PrivKey
@@ -54,10 +53,10 @@ type App struct {
 func initPath(overridePath string) string {
 	var configFilePath string
 	if overridePath != "" {
-		logger.Info("Using config path override")
+		log.Println("Using config path override")
 		configFilePath = overridePath
 		statpath, err := os.Stat(overridePath)
-		logger.Info(statpath)
+		log.Println(statpath)
 		if os.IsNotExist(err) {
 			err = os.MkdirAll(filepath.Join(overridePath, name), 0755)
 			if err != nil {
@@ -65,10 +64,10 @@ func initPath(overridePath string) string {
 			}
 		}
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 	} else {
-		logger.Info("Using default config path")
+		log.Println("Using default config path")
 		configFilePath = filepath.Join(xdg.ConfigHome, name)
 	}
 	return configFilePath
@@ -79,26 +78,26 @@ func retrievePrivateKey(store *badger.Datastore, ctx context.Context) crypto.Pri
 	k := ds.NewKey("userKey")
 	v, err := store.Get(ctx, k)
 	if err != nil && err != ds.ErrNotFound {
-		logger.Fatal(err)
+		log.Fatal(err)
 	} else if v != nil {
-		logger.Info("priv exists")
+		log.Println("PrivateKey exists, retrieving...")
 		priv, err = crypto.UnmarshalPrivateKey(v)
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 	} else {
-		logger.Info("priv doesn't exist")
+		log.Println("PrivateKey doesn't exist, generating...")
 		priv, _, err = crypto.GenerateKeyPair(crypto.Ed25519, 1)
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 		data, err := crypto.MarshalPrivateKey(priv)
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 		err = store.Put(ctx, k, data)
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 	}
 	return priv
@@ -109,20 +108,20 @@ func retrieveDbKey(refPath string) []byte {
 	var priv []byte
 	_, err := os.Stat(keyPath)
 	if os.IsNotExist(err) {
-		priv, err = NewAESKey()
+		priv, err = zcrypto.NewAESKey()
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 		err = os.WriteFile(keyPath, priv, fs.FileMode(0400))
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 	} else if err != nil {
-		logger.Fatal(err)
+		log.Fatal(err)
 	} else {
 		priv, err = os.ReadFile(keyPath)
 		if err != nil {
-			logger.Fatal(err)
+			log.Fatal(err)
 		}
 	}
 	return priv
@@ -130,6 +129,8 @@ func retrieveDbKey(refPath string) []byte {
 
 func (a *App) Startup(overrides map[string]string) {
 	crypto.MinRsaKeyBits = 1024
+
+	a.Logger = logging.Logger("zome")
 
 	logging.SetLogLevel("*", "error")
 	ctx := context.Background()
@@ -140,20 +141,20 @@ func (a *App) Startup(overrides map[string]string) {
 
 	store, err := badger.NewDatastore(data, &badger.DefaultOptions)
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	priv := retrievePrivateKey(store, ctx)
 
 	pid, err := peer.IDFromPublicKey(priv.GetPublic())
 	if err != nil {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	}
 
 	a.friendlyName = "zome"
 	v, err := store.Get(ctx, ds.NewKey("friendlyName")) //get the user friendly name
 	if err != nil && err != ds.ErrNotFound {
-		logger.Fatal(err)
+		a.Logger.Fatal(err)
 	} else if v != nil {
 		a.friendlyName = string(v)
 	}
@@ -166,8 +167,8 @@ func (a *App) Startup(overrides map[string]string) {
 	a.privateKey = priv
 	a.dbCryptKey = retrieveDbKey(data) // file based key, can be moved to lock db
 
-	a.fsActiveWrites = make(map[string]UploadHeader)
-	a.fsActiveReads = make(map[string]DownloadHeader)
+	a.fsActiveWrites = make(map[string]si.UploadHeader)
+	a.fsActiveReads = make(map[string]si.DownloadHeader)
 	a.store = store
 }
 
@@ -177,11 +178,11 @@ func (a *App) Shutdown() {
 
 func main() {
 	configPathOverride := flag.String("configPath", "", "overrides default config path")
-	configPortOverride := flag.String("port", "", "overrides default port")
+	// configPortOverride := flag.String("port", "", "overrides default port")
 	help := flag.Bool("h", false, "Display Help")
 	flag.Parse()
 	if *help {
-		fmt.Println("zome under construction")
+		log.Println("Zome under construction")
 		flag.PrintDefaults()
 		return
 	}
@@ -192,13 +193,13 @@ func main() {
 
 	app.InitP2P()
 
-	app.initWeb(map[string]string{"configPort": *configPortOverride})
+	app.initInterface()
 
 	if len(os.Args) > 1 && os.Args[1] == "daemon" {
-		logger.Info("Running in daemon mode")
+		log.Println("Running in daemon mode")
 		go func() {
 			for {
-				logger.Infof("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeersFull(app.host)))
+				log.Printf("%s - %d connected peers\n", time.Now().Format(time.Stamp), len(connectedPeersFull(app.host)))
 				time.Sleep(10 * time.Second)
 			}
 		}()

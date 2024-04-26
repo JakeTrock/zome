@@ -6,7 +6,7 @@ get:
 	$(GO) mod tidy
 
 dev:
-	$(GO) run $(filter-out %_test.go,$(wildcard *.go))
+	$(GO) run devIndRun.go
 
 fe:
 	pnpx serve frontend

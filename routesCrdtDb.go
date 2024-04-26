@@ -4,37 +4,14 @@ import (
 	"encoding/json"
 
 	ds "github.com/ipfs/go-datastore"
+	"github.com/jaketrock/zome/sharedInterfaces"
+	"github.com/jaketrock/zome/zcrypto"
 )
 
-//TODO: test cross origin
-
-func (a *App) removeOrigin(wc wsConn, _ []byte, selfOrigin string) {
-	type successReturn struct {
-		DidSucceed bool `json:"didSucceed"`
-	}
-
-	success := successReturn{
-		DidSucceed: false,
-	}
-	err := a.store.DB.DropPrefix([]byte(selfOrigin))
-	if err != nil {
-		wc.sendMessage(500, fmtError(err.Error()))
-		success.DidSucceed = false
-	} else {
-		success.DidSucceed = true
-	}
-
-	wc.sendMessage(200, success)
-}
-
-func (a *App) handleAddRequest(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) handleAddRequest(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Action      string `json:"action"`
-		ForceDomain string `json:"forceDomain"`
-		Data        struct {
-			ACL    string            `json:"acl"`
-			Values map[string]string `json:"values"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.DbAddRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -52,10 +29,6 @@ func (a *App) handleAddRequest(wc wsConn, request []byte, selfOrigin string) {
 		requestBody.Data.ACL = "11"
 	}
 
-	type successReturn struct {
-		DidSucceed map[string]bool `json:"didSucceed"`
-	}
-
 	var origin = selfOrigin
 	if requestBody.ForceDomain != "" {
 		origin = requestBody.ForceDomain
@@ -68,20 +41,17 @@ func (a *App) handleAddRequest(wc wsConn, request []byte, selfOrigin string) {
 		return
 	}
 
-	success := successReturn{
+	success := sharedInterfaces.DbAddResponse{
 		DidSucceed: successResult,
 	}
 
 	wc.sendMessage(200, success)
 }
 
-func (a *App) handleGetRequest(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) handleGetRequest(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Action      string `json:"action"`
-		ForceDomain string `json:"forceDomain"`
-		Data        struct {
-			Values []string `json:"values"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.DbGetRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -92,11 +62,6 @@ func (a *App) handleGetRequest(wc wsConn, request []byte, selfOrigin string) {
 	if len(requestBody.Data.Values) == 0 {
 		wc.sendMessage(400, fmtError("invalid request body: no keys provided"))
 		return
-	}
-
-	type returnMessage struct {
-		Success bool              `json:"didSucceed"`
-		Keys    map[string]string `json:"keys"`
 	}
 
 	var origin = selfOrigin
@@ -110,7 +75,7 @@ func (a *App) handleGetRequest(wc wsConn, request []byte, selfOrigin string) {
 		return
 	}
 
-	returnMessages := returnMessage{
+	returnMessages := sharedInterfaces.DbGetResponse{
 		Success: false,
 		Keys:    getResult,
 	}
@@ -120,13 +85,10 @@ func (a *App) handleGetRequest(wc wsConn, request []byte, selfOrigin string) {
 	wc.sendMessage(200, returnMessages)
 }
 
-func (a *App) handleDeleteRequest(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) handleDeleteRequest(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Action      string `json:"action"`
-		ForceDomain string `json:"forceDomain"`
-		Data        struct {
-			Values []string `json:"values"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.DbDeleteRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -139,12 +101,7 @@ func (a *App) handleDeleteRequest(wc wsConn, request []byte, selfOrigin string) 
 		return
 	}
 
-	type successReturn struct {
-		DidSucceed map[string]bool `json:"didSucceed"`
-		Error      string          `json:"error"`
-	}
-
-	success := successReturn{
+	success := sharedInterfaces.DbDeleteResponse{
 		DidSucceed: make(map[string]bool, len(requestBody.Data.Values)),
 	}
 
@@ -161,7 +118,7 @@ func (a *App) handleDeleteRequest(wc wsConn, request []byte, selfOrigin string) 
 			continue
 		}
 		//check ACL
-		if !checkACL(string(value[:2]), "3", selfOrigin, origin) {
+		if !zcrypto.CheckACL(string(value[:2]), "3", selfOrigin, origin) {
 			success.DidSucceed[k] = false
 			success.Error += err.Error() + ", "
 			continue
@@ -179,12 +136,10 @@ func (a *App) handleDeleteRequest(wc wsConn, request []byte, selfOrigin string) 
 	wc.sendMessage(200, success)
 }
 
-func (a *App) setGlobalWrite(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) setGlobalWrite(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			Value bool `json:"value"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.DbSetGlobalWriteRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -197,11 +152,7 @@ func (a *App) setGlobalWrite(wc wsConn, request []byte, selfOrigin string) {
 		return
 	}
 
-	type successReturn struct {
-		DidSucceed bool `json:"didSucceed"`
-	}
-
-	success := successReturn{
+	success := sharedInterfaces.DbSetGlobalWriteResponse{
 		DidSucceed: false,
 	}
 
@@ -211,8 +162,7 @@ func (a *App) setGlobalWrite(wc wsConn, request []byte, selfOrigin string) {
 	if requestBody.Data.Value {
 		enableByte = []byte{1}
 	}
-
-	err = a.store.Put(a.ctx, ds.NewKey(origin), enableByte)
+	err = a.secureInternalKeyAdd(origin, enableByte)
 	if err != nil {
 		success.DidSucceed = false
 		wc.sendMessage(500, fmtError(err.Error()))
@@ -223,16 +173,29 @@ func (a *App) setGlobalWrite(wc wsConn, request []byte, selfOrigin string) {
 	wc.sendMessage(200, success)
 }
 
-func (a *App) getGlobalWrite(wc wsConn, _ []byte, selfOrigin string) {
+func (a *App) getGlobalWrite(wc peerConn, _ []byte, selfOrigin string) {
 	gwrite, err := a.globalWriteAbstract(selfOrigin, "GW")
 	if err != nil {
 		wc.sendMessage(500, fmtError(err.Error()))
 		return
 	}
-	successObj := struct {
-		GlobalWrite bool `json:"globalWrite"`
-	}{}
+	successObj := sharedInterfaces.DbGetGlobalWriteResponse{}
 	successObj.GlobalWrite = gwrite
 
 	wc.sendMessage(200, successObj)
+}
+
+func (a *App) removeOrigin(wc peerConn, _ []byte, selfOrigin string) {
+	success := sharedInterfaces.DbRemoveOriginResponse{
+		DidSucceed: false,
+	}
+	err := a.store.DB.DropPrefix([]byte(selfOrigin))
+	if err != nil {
+		wc.sendMessage(500, fmtError(err.Error()))
+		success.DidSucceed = false
+	} else {
+		success.DidSucceed = true
+	}
+
+	wc.sendMessage(200, success)
 }

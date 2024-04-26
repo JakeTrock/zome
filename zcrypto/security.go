@@ -1,4 +1,4 @@
-package main
+package zcrypto
 
 import (
 	"crypto/aes"
@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	mrand "math/rand"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -66,7 +67,7 @@ func AesGCMDecrypt(key, data []byte) ([]byte, error) {
 	return plaintext, nil
 }
 
-func sanitizeACL(aclString string) (string, error) {
+func SanitizeACL(aclString string) (string, error) {
 	// acl is a 2 character int determining what other sites can access the data
 	// posn 1 = group
 	// posn 2 = other
@@ -83,7 +84,7 @@ func sanitizeACL(aclString string) (string, error) {
 	return aclString, nil
 }
 
-func checkACL(acl, operation, domainSource, domainTarget string) bool {
+func CheckACL(acl, operation, domainSource, domainTarget string) bool {
 	// operation is a number between 1 and 7
 	opRegex := "^[1-3]{1}$"
 	if !regexp.MustCompile(opRegex).MatchString(operation) {
@@ -101,21 +102,21 @@ func checkACL(acl, operation, domainSource, domainTarget string) bool {
 		// if the domainSource is in the same group as the domainTarget
 		operationNum, err := strconv.Atoi(operation)
 		if err != nil {
-			logger.Error(err)
+			fmt.Println(err)
 			return false
 		}
 
 		acstr := acl[aclPos : aclPos+1]
 		aclNum, err := strconv.Atoi(acstr)
 		if err != nil {
-			logger.Error(err)
+			fmt.Println(err)
 			return false
 		}
 		return operationNum <= aclNum
 	}
 }
 
-func sha256File(writePath string) (string, error) {
+func Sha256File(writePath string) (string, error) {
 	file, err := os.Open(writePath)
 	if err != nil {
 		return "", err
@@ -144,7 +145,7 @@ func DirSize(path string) (int64, error) {
 	return size, err
 }
 
-func calculateDecryptedFileSize(filePath string) (int64, error) { //TODO: may not be correct,you should just store this in metadata
+func CalculateDecryptedFileSize(filePath string) (int64, error) { //TODO: may not be correct,you should just store this in metadata
 	file, err := os.Open(filePath)
 	if err != nil {
 		return 0, err
@@ -173,4 +174,13 @@ func calculateDecryptedFileSize(filePath string) (int64, error) { //TODO: may no
 	}
 
 	return decryptedSize, nil
+}
+
+func GenerateRandomKey() string {
+	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	b := make([]byte, 5)
+	for i := range b {
+		b[i] = letters[mrand.Intn(len(letters))]
+	}
+	return string(b)
 }

@@ -4,18 +4,19 @@ import (
 	"fmt"
 
 	ds "github.com/ipfs/go-datastore"
+	"github.com/jaketrock/zome/zcrypto"
 )
 
 // allow/disallow adding values to a domain without said value there yet(meaning no acl would exist)
 func (a *App) globalWriteAbstract(origin string, key string) (bool, error) {
 	selfOrigin := origin + "]-" + key
-	value, err := a.store.Get(a.ctx, ds.NewKey(selfOrigin))
+	value, err := a.secureInternalKeyGet(selfOrigin)
 	if err != nil {
 		if err != ds.ErrNotFound {
 			return false, err
 		} else {
 			//repair db to secure state
-			err = a.store.Put(a.ctx, ds.NewKey(selfOrigin+"]-"+key), []byte{0})
+			err = a.secureInternalKeyAdd(selfOrigin, []byte{0})
 			if err != nil {
 				return false, err
 			}
@@ -32,9 +33,9 @@ func (a *App) secureAddLoop(addValues map[string]string, ACL, origin, selfOrigin
 
 	success := make(map[string]bool, len(addValues))
 
-	acl, err := sanitizeACL(ACL)
+	acl, err := zcrypto.SanitizeACL(ACL)
 	if err != nil {
-		logger.Error(err)
+		a.Logger.Error(err)
 		return nil, err
 	}
 
@@ -42,7 +43,7 @@ func (a *App) secureAddLoop(addValues map[string]string, ACL, origin, selfOrigin
 	if origin != selfOrigin {
 		globalWrite, err = a.globalWriteAbstract(origin, "GW")
 		if err != nil {
-			logger.Error(err)
+			a.Logger.Error(err)
 			return nil, err
 		}
 	} else {
@@ -53,7 +54,7 @@ func (a *App) secureAddLoop(addValues map[string]string, ACL, origin, selfOrigin
 		// check value exists
 		didSucceed, err := a.secureAdd(k, v, acl, origin, selfOrigin, globalWrite)
 		if err != nil {
-			logger.Error(err)
+			a.Logger.Error(err)
 			success[k] = false
 		}
 		success[k] = didSucceed
@@ -68,7 +69,7 @@ func (a *App) secureGetLoop(getValues []string, origin string, selfOrigin string
 		// Retrieve the value from the store
 		decryptedValue, err := a.secureGet(k, origin, selfOrigin)
 		if err != nil {
-			logger.Error(err)
+			a.Logger.Error(err)
 			success[k] = ""
 		}
 		success[k] = decryptedValue
@@ -84,22 +85,22 @@ func (a *App) secureAdd(key, valueText, acl, origin, selfOrigin string, globalWr
 		} else if !globalWrite && origin != selfOrigin { // only continue if the global write is enabled
 			return false, fmt.Errorf("global write not enabled")
 		}
-	} else if !checkACL(string(priorValue[:2]), "2", selfOrigin, origin) {
+	} else if !zcrypto.CheckACL(string(priorValue[:2]), "2", selfOrigin, origin) {
 		return false, fmt.Errorf("acl failure")
 	}
 
 	var encBytes []byte
 	// Encrypt the value with the private key
 
-	encryptedValue, err := AesGCMEncrypt(a.dbCryptKey, []byte(valueText))
+	encryptedValue, err := zcrypto.AesGCMEncrypt(a.dbCryptKey, []byte(valueText))
 	if err != nil {
-		logger.Error(err)
+		a.Logger.Error(err)
 		return false, err
 	}
 	encBytes = append([]byte(acl), encryptedValue...)
 	err = a.store.Put(a.ctx, ds.NewKey(origin+"-"+key), encBytes)
 	if err != nil {
-		logger.Error(err)
+		a.Logger.Error(err)
 		return false, err
 	}
 	return true, nil
@@ -112,19 +113,56 @@ func (a *App) secureGet(key, origin, originSelf string) (string, error) {
 		if err == ds.ErrNotFound {
 			return "", nil
 		}
-		logger.Error(err)
+		a.Logger.Error(err)
 		return "", err
 	}
 	//check ACL
-	if !checkACL(string(value[:2]), "1", originSelf, origin) {
+	if !zcrypto.CheckACL(string(value[:2]), "1", originSelf, origin) {
 		return "", fmt.Errorf("acl failure")
 	}
 	// Decrypt the value with the private key
-	decryptedValue, err := AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off
+	decryptedValue, err := zcrypto.AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off
 	if err != nil {
-		logger.Error(err)
+		a.Logger.Error(err)
 		return "", err
 	}
 
 	return string(decryptedValue), nil
+}
+
+// securely add key for internal pool use only
+func (a *App) secureInternalKeyAdd(key string, value []byte) error {
+	// Encrypt the value with the private key
+	encBytes, err := zcrypto.AesGCMEncrypt(a.dbCryptKey, value)
+	if err != nil {
+		a.Logger.Error(err)
+		return err
+	}
+	err = a.store.Put(a.ctx, ds.NewKey(key), encBytes)
+	if err != nil {
+		a.Logger.Error(err)
+		return err
+	}
+	return nil
+}
+
+// securely get key for internal pool use only
+func (a *App) secureInternalKeyGet(key string) ([]byte, error) {
+	// Retrieve the value from the store
+	value, err := a.store.Get(a.ctx, ds.NewKey(key))
+	if err != nil {
+		if err == ds.ErrNotFound {
+			return nil, nil
+		}
+		a.Logger.Error(err)
+		return nil, err
+	}
+	// Decrypt the value with the private key
+	decryptedValue, err := zcrypto.AesGCMDecrypt(a.dbCryptKey, value[2:]) //chop acl off
+	if err != nil {
+		a.Logger.Error(err)
+		return nil, err
+	}
+
+	return decryptedValue, nil
 }

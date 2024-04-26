@@ -1,68 +1,81 @@
 package main
 
 import (
-	"math/rand"
-	"net/http"
+	"fmt"
 	"os"
 	"path"
-	"strings"
 	"testing"
 
-	"github.com/gorilla/websocket"
 	ds "github.com/ipfs/go-datastore"
+	libzome "github.com/jaketrock/zome/libZome"
+	"github.com/jaketrock/zome/zcrypto"
 )
 
 type testContext struct {
-	app           *App
-	path          string
-	requestDomain string //localhost:port
-	originBase    string
+	app        *App
+	path       string
+	originBase string
+	libZome    *libzome.Zstate
+	servConn   libzome.ZomeController
 }
 
 const testPathBase = "./testPath"
 
 var firstApp = testContext{
-	app:           &App{},
-	path:          path.Join(testPathBase, "/first"),
-	requestDomain: "localhost:5252",
-	originBase:    generateRandomKey() + ".trock.com",
+	app:  &App{},
+	path: path.Join(testPathBase, "/first"),
 }
 var secondApp = testContext{
-	app:           &App{},
-	path:          path.Join(testPathBase, "/second"),
-	requestDomain: "localhost:5253",
-	originBase:    generateRandomKey() + ".crouton.net",
+	app:  &App{},
+	path: path.Join(testPathBase, "/second"),
 }
 
 // setup tests
-func (tc *testContext) setupSuite() {
+func (tc *testContext) setupSuite() error {
 	if tc.app.startTime.IsZero() {
 		os.RemoveAll(path.Join(tc.path, "zome"))
 		tc.app.Startup(map[string]string{"configPath": tc.path})
 		tc.app.InitP2P()
-		go func() {
-			requestDomainPort := strings.Split(tc.requestDomain, ":")[1]
-			tc.app.initWeb(map[string]string{"configPort": requestDomainPort})
-		}()
-		//enable fs and s3 global write
-		err := tc.app.store.Put(tc.app.ctx, ds.NewKey(tc.originBase+"]-FACL"), []byte{1})
-		if err != nil {
-			logger.Error(err)
+		tc.app.initInterface()
+
+		ctpk := tc.app.connTopic.String()
+		tc.libZome = &libzome.Zstate{}
+		tc.libZome.Initialize(ctpk)
+		peerList := tc.libZome.ListPeers(ctpk)
+		if len(peerList) == 0 {
+			return fmt.Errorf("no peers found") //TODO: not mating?
 		}
-		err = tc.app.store.Put(tc.app.ctx, ds.NewKey(tc.originBase+"]-GW"), []byte{1})
+		var exists bool
+		tc.servConn, exists = tc.libZome.ConnectServer(ctpk, peerList[0], libzome.ControlOp).(libzome.ZomeController)
+		if !exists {
+			return fmt.Errorf("no connection found")
+		}
+		spid := tc.libZome.SelfId(ctpk)
+		tc.originBase = spid
+		//enable fs and s3 global write
+		err := tc.app.store.Put(tc.app.ctx, ds.NewKey(spid+"]-FACL"), []byte{1})
 		if err != nil {
-			logger.Error(err)
+			fmt.Println(err)
+		}
+		err = tc.app.store.Put(tc.app.ctx, ds.NewKey(spid+"]-GW"), []byte{1})
+		if err != nil {
+			fmt.Println(err)
 		}
 	}
+	return nil
 }
 
 func TestMain(m *testing.M) {
 	//clear the testPath
 
 	os.RemoveAll(path.Join(testPathBase, "downloads"))
-	firstApp.setupSuite()
+	err := firstApp.setupSuite()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	// go func() {
-	// 	secondApp.setupSuite()  //TODO: why does this cause a crash?
+	// 	secondApp.setupSuite()  //TODO: crossorigin tests
 	// 	// defer secondApp.app.Shutdown()
 	// }()
 
@@ -71,26 +84,6 @@ func TestMain(m *testing.M) {
 	firstApp.app.Shutdown()
 	// secondApp.app.Shutdown()
 	os.Exit(code)
-}
-
-func (tc *testContext) establishControlSocket() *websocket.Conn {
-	header := http.Header{}
-	header.Add("Origin", "https://"+tc.originBase)
-	controlSocket, _, err := websocket.DefaultDialer.Dial("ws://"+tc.requestDomain+"/v1/control/", header)
-	if err != nil {
-		logger.Error(err)
-		return nil
-	}
-	return controlSocket
-}
-
-func generateRandomKey() string {
-	const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	b := make([]byte, 5)
-	for i := range b {
-		b[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(b)
 }
 
 type keyValueReq struct {
@@ -106,15 +99,15 @@ type singleReq struct {
 }
 
 func generateRandomStructs() (keyValueReq, listReq, singleReq) {
-	single := generateRandomKey()
+	single := zcrypto.GenerateRandomKey()
 	randomKeyValuePairs := keyValueReq{
 		values: map[string]string{
-			generateRandomKey(): generateRandomKey(),
-			generateRandomKey(): generateRandomKey(),
+			zcrypto.GenerateRandomKey(): zcrypto.GenerateRandomKey(),
+			zcrypto.GenerateRandomKey(): zcrypto.GenerateRandomKey(),
 		},
 	}
 
-	randomKeyValuePairs.values[single] = generateRandomKey()
+	randomKeyValuePairs.values[single] = zcrypto.GenerateRandomKey()
 
 	randomList := listReq{
 		values: []string{},
@@ -147,9 +140,9 @@ func generateRandomStructs() (keyValueReq, listReq, singleReq) {
 // 			fmt.Println("key: " + string(kCopyTo))
 // 			err := item.Value(func(val []byte) error {
 // 				// Decrypt the value here
-// 				decryptedValue, err := AesGCMDecrypt(a.dbCryptKey, val[2:])
+// 				decryptedValue, err := zcrypto.AesGCMDecrypt(a.dbCryptKey, val[2:])
 // 				if err != nil {
-// 					logger.Error(err)
+// 					a.Logger.Error(err)
 // 					return err
 // 				}
 
@@ -159,7 +152,7 @@ func generateRandomStructs() (keyValueReq, listReq, singleReq) {
 // 				return nil
 // 			})
 // 			if err != nil {
-// 				logger.Error(err)
+// 				a.Logger.Error(err)
 // 				return err
 // 			}
 // 		}
@@ -168,7 +161,7 @@ func generateRandomStructs() (keyValueReq, listReq, singleReq) {
 // 	})
 
 // 	if err != nil {
-// 		logger.Error(err)
+// 		a.Logger.Error(err)
 // 		return
 // 	}
 // }

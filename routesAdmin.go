@@ -5,11 +5,14 @@ import (
 	"time"
 
 	ds "github.com/ipfs/go-datastore"
+	"github.com/jaketrock/zome/zcrypto"
 )
 
-//TODO: testme
+//TODO: implement seperate admin trust level/access provisioning for this route
+//		case "ad-getPeerStats":
+//	a.getPeerStats(socket, message, host)
 
-func (a *App) getPeerStats(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) getPeerStats(wc peerConn, request []byte, selfOrigin string) {
 	var returnMessage = struct {
 		Version     string      `json:"version"`
 		DbSize      string      `json:"dbsize"`
@@ -30,16 +33,16 @@ func (a *App) getPeerStats(wc wsConn, request []byte, selfOrigin string) {
 
 	dbSize, err := ds.DiskUsage(a.ctx, a.store)
 	if err != nil {
-		logger.Error(err)
+		a.Logger.Error(err)
 		wc.sendMessage(500, "error getting db size"+err.Error())
 		return
 	} else {
 		returnMessage.DbSize = fmt.Sprint(dbSize)
 	}
 
-	dataDirSize, err := DirSize(a.operatingPath) //TODO: this route can be used for DoS
+	dataDirSize, err := zcrypto.DirSize(a.operatingPath) //TODO: this route can be used for DoS
 	if err != nil {
-		logger.Error(err)
+		a.Logger.Error(err)
 		wc.sendMessage(500, "error getting data dir size"+err.Error())
 		return
 	} else {

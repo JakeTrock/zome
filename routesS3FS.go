@@ -9,27 +9,17 @@ import (
 	"strings"
 
 	ds "github.com/ipfs/go-datastore"
+	"github.com/jaketrock/zome/sharedInterfaces"
+	"github.com/jaketrock/zome/zcrypto"
 	"github.com/lucsky/cuid"
 )
 
-func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
+func (a *App) putObjectRoute(wc peerConn, request []byte, originSelf string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			FileName     string            `json:"filename"`
-			FileSize     int64             `json:"filesize"`
-			Tagging      map[string]string `json:"tagging"`
-			OverridePath string            `json:"overridePath"`
-			ACL          string            `json:"acl"`  // acl of the metadata
-			FACL         string            `json:"facl"` // acl of the file within metadata
-			Encryption   bool              `json:"encryption"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.PutObjectRequest `json:"data"`
 	}
-	var successObj = struct {
-		DidSucceed bool   `json:"didSucceed"`
-		UploadId   string `json:"uploadId"` //the id which you will open a socket to in /upload/:id
-		Error      string `json:"error"`
-	}{DidSucceed: false}
+	var successObj = sharedInterfaces.PutObjectResponse{DidSucceed: false}
 
 	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
@@ -41,12 +31,12 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 		return
 	}
 
-	cleanMacl, err := sanitizeACL(requestBody.Data.ACL)
+	cleanMacl, err := zcrypto.SanitizeACL(requestBody.Data.ACL)
 	if err != nil {
 		wc.sendMessage(400, fmtError("File Metadata ACL format error "+err.Error()))
 		return
 	}
-	cleanFACL, err := sanitizeACL(requestBody.Data.FACL)
+	cleanFACL, err := zcrypto.SanitizeACL(requestBody.Data.FACL)
 	if err != nil {
 		wc.sendMessage(400, fmtError("File ACL format error "+err.Error()))
 		return
@@ -85,7 +75,7 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 			return
 		}
 		//check data ACL against own domain, ignores meta ACL
-		if !checkACL(priorValue.ACL, "2", originSelf, origin) {
+		if !zcrypto.CheckACL(priorValue.ACL, "2", originSelf, origin) {
 			wc.sendMessage(403, fmtError("edit permission denied"))
 			return
 		}
@@ -112,7 +102,7 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 
 	randomId := cuid.New()
 
-	a.fsActiveWrites[randomId] = UploadHeader{
+	a.fsActiveWrites[randomId] = sharedInterfaces.UploadHeader{
 		Filename:   requestBody.Data.FileName,
 		Size:       requestBody.Data.FileSize,
 		Domain:     origin,
@@ -143,21 +133,12 @@ func (a *App) putObjectRoute(wc wsConn, request []byte, originSelf string) {
 	wc.sendMessage(200, successObj)
 }
 
-func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
+func (a *App) getObjectRoute(wc peerConn, request []byte, originSelf string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			FileName     string `json:"fileName"`
-			ContinueFrom int64  `json:"continueFrom"`
-			ForceDomain  string `json:"forceDomain"`
-			Encryption   bool   `json:"encryption"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.GetObjectRequest `json:"data"`
 	}
-	var successObj = struct {
-		DidSucceed bool   `json:"didSucceed"`
-		MetaData   string `json:"metadata"`
-		DownloadId string `json:"downloadId"`
-	}{DidSucceed: false}
+	var successObj = sharedInterfaces.GetObjectResponse{DidSucceed: false}
 
 	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
@@ -202,7 +183,7 @@ func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
 			return
 		}
 		//check data ACL against own domain, ignores meta ACL
-		if !checkACL(priorValue.FACL, "1", originSelf, origin) {
+		if !zcrypto.CheckACL(priorValue.FACL, "1", originSelf, origin) {
 			wc.sendMessage(403, fmtError("read permission denied"))
 			return
 		}
@@ -232,7 +213,7 @@ func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
 
 	randomId := cuid.New()
 
-	a.fsActiveReads[randomId] = DownloadHeader{
+	a.fsActiveReads[randomId] = sharedInterfaces.DownloadHeader{
 		Filename:     requestBody.Data.FileName,
 		ContinueFrom: requestBody.Data.ContinueFrom,
 		Domain:       origin,
@@ -245,17 +226,12 @@ func (a *App) getObjectRoute(wc wsConn, request []byte, originSelf string) {
 	wc.sendMessage(200, successObj)
 }
 
-func (a *App) deleteObjectRoute(wc wsConn, request []byte, originSelf string) {
+func (a *App) deleteObjectRoute(wc peerConn, request []byte, originSelf string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			FileName string `json:"fileName"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.DeleteObjectRequest `json:"data"`
 	}
-	var successObj = struct {
-		DidSucceed bool   `json:"didSucceed"`
-		Error      string `json:"error"`
-	}{DidSucceed: false}
+	var successObj = sharedInterfaces.DeleteObjectResponse{DidSucceed: false}
 
 	err := json.Unmarshal(request, &requestBody)
 	if err != nil {
@@ -293,7 +269,7 @@ func (a *App) deleteObjectRoute(wc wsConn, request []byte, originSelf string) {
 			return
 		}
 		//check data ACL against own domain, ignores meta ACL
-		if !checkACL(priorValue.ACL, "3", originSelf, origin) {
+		if !zcrypto.CheckACL(priorValue.ACL, "3", originSelf, origin) {
 			wc.sendMessage(403, fmtError("delete permission denied"))
 			return
 		}
@@ -329,12 +305,10 @@ func (a *App) deleteObjectRoute(wc wsConn, request []byte, originSelf string) {
 	wc.sendMessage(200, successObj)
 }
 
-func (a *App) setGlobalFACL(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) setGlobalFACL(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			Value bool `json:"value"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.SetGlobalFACLRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -347,11 +321,7 @@ func (a *App) setGlobalFACL(wc wsConn, request []byte, selfOrigin string) {
 		return
 	}
 
-	type successReturn struct {
-		DidSucceed bool `json:"didSucceed"`
-	}
-
-	success := successReturn{
+	success := sharedInterfaces.SetGlobalFACLResponse{
 		DidSucceed: false,
 	}
 
@@ -362,7 +332,7 @@ func (a *App) setGlobalFACL(wc wsConn, request []byte, selfOrigin string) {
 		enableByte = []byte{1}
 	}
 
-	err = a.store.Put(a.ctx, ds.NewKey(origin), enableByte)
+	err = a.secureInternalKeyAdd(origin, enableByte)
 	if err != nil {
 		success.DidSucceed = false
 		wc.sendMessage(500, fmtError("error storing GFACL "+err.Error()))
@@ -373,28 +343,24 @@ func (a *App) setGlobalFACL(wc wsConn, request []byte, selfOrigin string) {
 	wc.sendMessage(200, success)
 }
 
-func (a *App) getGlobalFACL(wc wsConn, _ []byte, selfOrigin string) {
+func (a *App) getGlobalFACL(wc peerConn, _ []byte, selfOrigin string) {
 	gwrite, err := a.globalWriteAbstract(selfOrigin, "FACL")
 	if err != nil {
 		wc.sendMessage(500, fmtError("error getting global FACL "+err.Error()))
 		return
 	}
 
-	successObj := struct {
-		GlobalFsAccess bool `json:"globalFsAccess"`
-	}{
+	successObj := sharedInterfaces.GetGlobalFACLResponse{
 		GlobalFsAccess: gwrite,
 	}
 
 	wc.sendMessage(200, successObj)
 }
 
-func (a *App) getDirectoryListing(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) getDirectoryListing(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			Directory string `json:"directory"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.GetDirectoryListingRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -462,10 +428,7 @@ func (a *App) getDirectoryListing(wc wsConn, request []byte, selfOrigin string) 
 		return
 	}
 
-	returnMessage := struct {
-		DidSucceed bool              `json:"didSucceed"`
-		Files      map[string]string `json:"files"`
-	}{
+	returnMessage := sharedInterfaces.GetDirectoryListingResponse{
 		DidSucceed: true,
 		Files:      metaObject,
 	}
@@ -473,12 +436,10 @@ func (a *App) getDirectoryListing(wc wsConn, request []byte, selfOrigin string) 
 	wc.sendMessage(200, returnMessage)
 }
 
-func (a *App) removeObjectOrigin(wc wsConn, request []byte, selfOrigin string) {
+func (a *App) removeObjectOrigin(wc peerConn, request []byte, selfOrigin string) {
 	var requestBody struct {
-		Request
-		Data struct {
-			Directory string `json:"directory"`
-		} `json:"data"`
+		sharedInterfaces.Request
+		Data sharedInterfaces.RemoveObjectOriginRequest `json:"data"`
 	}
 
 	err := json.Unmarshal(request, &requestBody)
@@ -492,7 +453,7 @@ func (a *App) removeObjectOrigin(wc wsConn, request []byte, selfOrigin string) {
 	}
 
 	// check if origin is allowed to be removed
-	if !checkACL(selfOrigin, "3", selfOrigin, selfOrigin) {
+	if !zcrypto.CheckACL(selfOrigin, "3", selfOrigin, selfOrigin) {
 		wc.sendMessage(403, fmtError("remove permission denied"))
 		return
 	}
@@ -500,7 +461,7 @@ func (a *App) removeObjectOrigin(wc wsConn, request []byte, selfOrigin string) {
 	// remove origin
 	err = a.store.Delete(a.ctx, ds.NewKey(requestBody.Data.Directory))
 	if err != nil {
-		wc.sendMessage(500, fmtError("error removing directory "+err.Error()))
+		wc.sendMessage(500, fmtError("error removing directory from db "+err.Error()))
 		return
 	}
 
@@ -509,10 +470,12 @@ func (a *App) removeObjectOrigin(wc wsConn, request []byte, selfOrigin string) {
 	delPath := path.Join(a.operatingPath, "zome", "data", key)
 
 	err = os.RemoveAll(delPath)
+	if err != nil {
+		wc.sendMessage(500, fmtError("error removing directory from fs "+err.Error()))
+		return
+	}
 
-	wc.sendMessage(200, struct {
-		DidSucceed bool `json:"didSucceed"`
-	}{true})
+	wc.sendMessage(200, sharedInterfaces.RemoveObjectOriginResponse{DidSucceed: true})
 }
 
 func illegalFileName(path string) bool {

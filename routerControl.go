@@ -2,32 +2,20 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"net/url"
 )
 
-func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //TODO: where will these requests come from?
-	socket := wsConn{}
-	//defer send close frame
-	defer socket.killSocket()
-	var err error
-	socket.conn, err = upgradeConn(w, r)
-
-	if err != nil {
-		logger.Error(err)
-		return
-	}
+func (a *App) routeControl(socket peerConn) {
 
 	for {
 		// Read the message from the client
-		_, message, err := socket.conn.ReadMessage()
+		_, message, err := socket.ReadMessage()
 		if err != nil {
-			logger.Error(err)
+			a.Logger.Error(err)
 			return
 		}
 
-		host := getOriginSegregator(r)
+		host := socket.origin
+		//peer id the message is from
 
 		// Decode the message
 		var request struct {
@@ -35,7 +23,7 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		}
 		err = json.Unmarshal(message, &request)
 		if err != nil {
-			logger.Error(err)
+			a.Logger.Error(err)
 			return
 		}
 
@@ -68,30 +56,12 @@ func (a *App) websocketCRDTHandler(w http.ResponseWriter, r *http.Request) { //T
 		case "fs-removeOrigin":
 			a.removeObjectOrigin(socket, message, host)
 		case "fs-getListing":
-			a.getDirectoryListing(socket, message, host) //TODO: all of these routes over p2p, only admin over ws
+			a.getDirectoryListing(socket, message, host)
 
-		// ADmin routes
-		case "ad-getPeerStats":
-			a.getPeerStats(socket, message, host)
-
-		//TODO: admin routes for blocking origins, fs restrictions
 		default:
-			// logger.Error("Invalid action")
+			// a.Logger.Error("Invalid action")
 			socket.sendMessage(400, "{\"error\":\"Invalid action\"}")
 			return
 		}
 	}
-}
-
-func getOriginSegregator(r *http.Request) string {
-	origin := r.Header.Get("Origin") //TODO: replace this with just getting the pubkey from the p2p request
-	baseurl, err := url.Parse(origin)
-	if err != nil {
-		panic(fmt.Errorf("error parsing origin: %s", err))
-	}
-	host := baseurl.Hostname()
-	if baseurl.Port() != "" {
-		host = host + ":" + baseurl.Port()
-	}
-	return host
 }
