@@ -8,14 +8,14 @@ get:
 dev:
 	$(GO) run $(filter-out %_test.go,$(wildcard *.go))
 
-fe:
-	pnpx serve frontend
-
 test:
 	$(GO) test -v ./...
 
 hbuild:
-	$(GO) build -o zomeHeadless *.go
+	CGO_ENABLED=1 $(GO) build -o zomeD *.go
+
+runSystem:
+	go run zomeDbManager --dbPath ./testPath/db.sqlite
 
 clean:
 	rm zomeHeadless

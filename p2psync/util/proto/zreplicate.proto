@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.github.zome.sync.zreplicate";
+option java_outer_classname = "zReplicateProto";
+option go_package = "./proto";
+
+package proto_resqlite;
+
+// The ReSqlite (replicated sqlite) service definition.
+service ReSqlite {
+  // Sends a SQL command for processing.
+  rpc SendSqlCommand (SqlCommandRequest) returns (SqlCommandResponse) {}
+
+}
+
+message SqlCommandRequest {
+  // Query
+  string dbName = 1;
+  string query = 2;
+}
+
+
+message SqlCommandResponse {
+  // Response
+  string response = 1;
+}

@@ -1,7 +1,7 @@
-zomeHeadless
-TODO.md
+.env
+# apple
 .DS_Store
-testPath/first
-testPath/second
-testPath/downloads
-libZome
+testPath/**
+p2psync/sqlite-*
+p2psync/zomeSync
+p2psync/TODO.md

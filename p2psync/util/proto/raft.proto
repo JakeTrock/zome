@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.github.zome.sync.raft";
+option java_outer_classname = "RaftProto";
+option go_package = "./proto";
+
+package proto;
+
+// The Raft service definition.
+service Raft {
+  // Sends an AppendEntries RPC.
+  rpc AppendEntries (AppendEntriesRequest) returns (AppendEntriesResponse) {}
+
+  // Send a RequestVote RPC.
+  rpc RequestVote (RequestVoteRequest) returns (RequestVoteResponse) {}
+
+  // RPC to receive and process mutating sql client command requests.
+  rpc ClientCommand(ClientCommandRequest) returns (ClientCommandResponse) {}
+}
+
+// For the message definitions here, please refer to Figure 2 of the Raft paper.
+
+message AppendEntriesRequest {
+  // Leader's term
+  int64 term = 1;
+
+  // This is so that follower can redirect clients. Leader ID is hostname/IP + Port number of the
+  // the leader. E.g. something like 10.10.1.2:50103
+  string leaderId = 2;
+
+  // Index of the log entry immediately preceeding the new ones
+  int64 prevLogIndex = 3;
+
+  // Term of prevLogIndex entry
+  int64 prevLogTerm = 4;
+
+  // Log entries to store. This can be empty for just for heartbeat messages.
+  // Can send more than one for efficiency reasons.
+  repeated LogEntry entries = 5;
+
+  // Leaders commit index.
+  int64 leaderCommit = 6;
+}
+
+
+message LogEntry {
+  // Data to be appended to the replicated log.
+  string data = 1;
+
+  // The term when the log entry command was received by the leader.
+  int64 term = 2;
+}
+
+// Message contain the log entry that's actually to be saved to disk.
+message DiskLogEntry {
+  // Log entry with data to be saved.
+  LogEntry logEntry = 1;
+
+  // Optional.
+  // Index for this log entry item. This is a 1-based index.
+  int64 logIndex = 3;
+}
+
+message AppendEntriesResponse {
+  // RPC response code status. See https://godoc.org/google.golang.org/grpc/codes
+  uint32 responseStatus = 1;
+
+  // Current term for leader to update itself.
+  int64 term = 2;
+
+  // True if follower contained entry matching prevLogIndex and prevLogTerm
+  bool success = 3;
+}
+
+
+// This invoked by candidated to gather votes.
+message RequestVoteRequest {
+  // Candidate's term
+  int64 term = 1;
+
+  // Candidate requesting the vote.
+  // This is the fully qualified name for the node (hostname/ip + port number).
+  string candidateId = 2;
+
+  // Index of candidate's last log entry
+  int64 lastLogIndex = 3;
+
+  // Term of candidate's last log entry
+  int64 lastLogTerm = 4;
+}
+
+message RequestVoteResponse {
+  // RPC response code status. See https://godoc.org/google.golang.org/grpc/codes
+  uint32 responseStatus = 1;
+
+  // Current term for candidate to update themselves.
+  int64 term = 2;
+
+  // If true, indicates that the node has voted for the candidate to be a leader.
+  bool voteGranted = 3;
+}
+
+// Request received from raft clients to execute a command.
+message ClientCommandRequest {
+
+  // Command that client wants to execute. For zreplicate: this should be the
+  // mutating Sql command to execute.
+  // For example: INSERT INTO TABLE(1,2,3) ....;
+  string command = 1;
+
+  // If set, this command is query against the sql database.
+  // This is a valid sql string like "Select X from TABLE;"
+  string query = 2;
+}
+
+// Response returns to raft clients from executing a command.
+message ClientCommandResponse {
+
+  // Standard RPC response code status. See https://godoc.org/google.golang.org/grpc/codes
+  // Indicates whether client command was successfully executed.
+  // If Code.OK - that means client command was replicated/executed ona majority of the raft cluster.
+  uint32 responseStatus = 1;
+
+  // Optional.
+  // This can be present when the client makes a request to a raft node
+  // that is no longer a primary node. The string is an address of the primary leader
+  // that client should contact to execute their command. Format looks like
+  // <hostname/ip>:Port e.g 10.10.3.2:50231
+  string newLeaderId = 2;
+
+  // Fetched data from executing the query. Only set for query requests.
+  string queryResponse = 3;
+}
