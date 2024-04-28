@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+import argparse
+import sqlite3
+import sys
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Compare a source SQLite database with multiple SQLite databases."
+    )
+    parser.add_argument(
+        "-s", "--source", required=True, help="Source SQLite database file."
+    )
+    parser.add_argument(
+        "-c",
+        "--compare",
+        nargs="+",
+        required=True,
+        help="List of SQLite database files to compare with the source.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Print detailed differences including row data.",
+    )
+    return parser.parse_args()
+
+
+def fetch_data(db_path, query):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(query)
+    data = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return data
+
+
+def compare_rows(source_rows, compare_rows):
+    differences = []
+    source_set = set(source_rows)
+    compare_set = set(compare_rows)
+    diff_source = source_set - compare_set
+    diff_compare = compare_set - source_set
+    if diff_source:
+        differences.append(
+            "Rows in source not in comparison:\n"
+            + "\n".join(str(row) for row in diff_source)
+        )
+    if diff_compare:
+        differences.append(
+            "Rows in comparison not in source:\n"
+            + "\n".join(str(row) for row in diff_compare)
+        )
+    return "\n".join(differences)
+
+
+def compare_databases(source, compares, verbose):
+    results = {}
+    try:
+        source_tables = fetch_data(
+            source, "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    except Exception as e:
+        print(f"Error accessing source database '{source}': {e}")
+        sys.exit(1)
+
+    source_table_names = [table[0] for table in source_tables]
+
+    for compare in compares:
+        try:
+            compare_tables = fetch_data(
+                compare, "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+            compare_table_names = [table[0] for table in compare_tables]
+            missing_tables = set(source_table_names) - set(compare_table_names)
+            extra_tables = set(compare_table_names) - set(source_table_names)
+
+            table_results = []
+            for table_name in source_table_names:
+                if table_name in compare_table_names:
+                    source_data = fetch_data(source, f"SELECT * FROM {table_name}")
+                    compare_data = fetch_data(compare, f"SELECT * FROM {table_name}")
+                    if source_data != compare_data:
+                        diff_message = f"Differences found in table '{table_name}'."
+                        if verbose:
+                            row_diffs = compare_rows(source_data, compare_data)
+                            diff_message += "\n" + row_diffs
+                        table_results.append(diff_message)
+                    else:
+                        table_results.append(f"No differences in table '{table_name}'.")
+                else:
+                    table_results.append(
+                        f"Table '{table_name}' missing in comparison database."
+                    )
+
+            if missing_tables:
+                table_results.append(
+                    f"Missing tables in comparison database: {', '.join(missing_tables)}"
+                )
+            if extra_tables:
+                table_results.append(
+                    f"Extra tables in comparison database: {', '.join(extra_tables)}"
+                )
+
+            results[compare] = "\n".join(table_results)
+        except Exception as e:
+            results[compare] = f"Error accessing comparison database '{compare}': {e}"
+
+    return results
+
+
+def main():
+    args = parse_arguments()
+    results = compare_databases(args.source, args.compare, args.verbose)
+    for filename, result in results.items():
+        print(f"Results for {filename}:\n{result}\n")
+
+
+if __name__ == "__main__":
+    main()

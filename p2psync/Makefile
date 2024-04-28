@@ -15,7 +15,7 @@ hbuild:
 	CGO_ENABLED=1 $(GO) build -o zomeSync *.go
 
 runOneNode:
-	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50050
+	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50051
 
 runThreeNodes:
 	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50051,localhost:50052,localhost:50053 >/tmp/node3_output.txt &
@@ -27,12 +27,23 @@ runThreeNodes:
 	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50053,localhost:50052,localhost:50051 >/tmp/node1_output.txt &
 	echo "Started Node 1"
 
-clientImport:
+clientImportTest:
 	echo "Running SQL data import ..."
-	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/chinook.txt' --interactive=true
+	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/clientImport.txt' --interactive=false
+	sha256sum ./data/clientImport.db sqlite-db-localhost-50051.db
+
+wBench:
+	echo "Running SQL data bench write ..."
+	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/wHeavy.txt' --interactive=false
+	sha256sum ./data/wHeavy.db sqlite-db-localhost-50051.db
+
+rBench:
+	echo "Running SQL data bench read ..."
+	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/rHeavy.txt' --interactive=false
+	sha256sum ./data/wHeavy.db sqlite-db-localhost-50051.db
 
 clientShell:
-	echo "Running SQL data import ..."
+	echo "opening client shell ..."
 	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true --interactive=true
 
 killAll:
