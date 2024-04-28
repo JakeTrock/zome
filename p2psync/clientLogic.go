@@ -48,19 +48,19 @@ func Sanitize(command string) error {
 	command = strings.Replace(command, "\n", "", -1)
 
 	if len(command) > 1 && command[:1] == "." {
-		return errors.New("sqlite3 .* syntax not supported.")
+		return errors.New("sqlite3 .* syntax not supported")
 	}
 
 	// lazy case-insensitive but wtv for now
 	upperC := strings.ToUpper(command)
 
 	if strings.Contains(upperC, "RANDOM()") {
-		return errors.New("random() or other non-determinstic commands not supported.")
+		return errors.New("random() or other non-determinstic commands not supported")
 	}
 
 	// TODO(sternhenri): deal with utc modifier
 	if strings.Contains(upperC, "('NOW'") || strings.Contains(upperC, "'NOW')") {
-		return errors.New("now or other non-determinstic commands not supported.")
+		return errors.New("now or other non-determinstic commands not supported")
 	}
 
 	if strings.Contains(upperC, "BEGIN TRANSACTION") ||
@@ -68,7 +68,7 @@ func Sanitize(command string) error {
 		strings.Contains(upperC, "END TRANSACTION") ||
 		strings.Contains(upperC, "ROLLBACK TRANSACTION") {
 
-		return errors.New("transactions not supported.")
+		return errors.New("transactions not supported")
 	}
 	// doesn't deal with user-defined functions as enabled in
 	// SQLite C interface.
@@ -104,7 +104,7 @@ func Execute(commands []string) (string, error) {
 			fmt.Printf("Processing command %v of %v\n", i+1, numCommands)
 		}
 		commandRequest := proto.ClientCommandRequest{}
-		if CommandIsRO(command) == true {
+		if CommandIsRO(command) {
 			commandRequest.Query = command
 		} else {
 			commandRequest.Command = command
@@ -141,7 +141,7 @@ func Execute(commands []string) (string, error) {
 
 		}
 
-		if CommandIsRO(command) == true {
+		if CommandIsRO(command) {
 			buf.WriteString(result.QueryResponse)
 		}
 	}
@@ -165,12 +165,12 @@ func Repl() {
 	var buf bytes.Buffer
 	exit := false
 
-	for exit != true {
+	for !exit {
 		fmt.Print("ZDB> ")
 		text, _ := reader.ReadString('\n')
 		text = strings.TrimSpace(text)
 
-		if text == "" {
+		if text == "" || text == "exit" {
 			// EOF received (^D)
 			os.Exit(0)
 		}

@@ -2,14 +2,6 @@
 
 package raft
 
-//TODO: this file no longer replicates correctly
-// to test:
-// make runThreeNodes
-//make clientImport
-//make hashCheck
-// ^ all hashes don't match here!
-//make killAll
-
 import (
 	"log"
 	"net"
@@ -1210,11 +1202,7 @@ func IssueAppendEntriesRpcToMajorityNodes(event *RaftClientCommandRpcEvent) bool
 
 	// +1 to include the copy at the primary as well.
 	numReplicatedData := int64(numOtherNodeSuccessRpcs) + 1
-	if numReplicatedData >= GetQuorumSize() {
-		return true
-	} else {
-		return false
-	}
+	return numReplicatedData >= GetQuorumSize()
 }
 
 // Issues an append entries rpc to given raft client and returns true upon success

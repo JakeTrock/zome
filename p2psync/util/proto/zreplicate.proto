@@ -11,7 +11,6 @@ package proto_resqlite;
 service ReSqlite {
   // Sends a SQL command for processing.
   rpc SendSqlCommand (SqlCommandRequest) returns (SqlCommandResponse) {}
-
 }
 
 message SqlCommandRequest {

@@ -25,7 +25,7 @@ runThreeNodes:
 	echo "Started Node 2"
 
 	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50053,localhost:50052,localhost:50051 >/tmp/node1_output.txt &
-	echo "Started Node 1"
+	echo "Started all nodes"
 
 clientImportTest:
 	echo "Running SQL data import ..."
@@ -60,7 +60,7 @@ hashCheck:
 	echo "Should be: a60c6591c09748c0eec2b3ff16b0e2cd5065e0feac8ff0811fc8b90224e881b7"
 	sha256sum sqlite-db-localhost-50051.db
 	sha256sum sqlite-db-localhost-50052.db
-	sha256sum sqlite-db-localhost-50052.db
+	sha256sum sqlite-db-localhost-50053.db
 
 clean:
 	rm -f zomeSync

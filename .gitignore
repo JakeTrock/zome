@@ -5,3 +5,4 @@ testPath/**
 p2psync/sqlite-*
 p2psync/zomeSync
 p2psync/TODO.md
+p2psync/.idea/**
