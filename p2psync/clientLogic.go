@@ -25,23 +25,20 @@ import (
 func CommandIsRO(query string) bool {
 	// input trimmed at client
 	queryUpper := strings.ToUpper(query)
-	return strings.HasPrefix(queryUpper, selectQueryPrefix)
+	return strings.HasPrefix(queryUpper, selectQuery)
 }
 
-func Connect(addr string) (proto.RaftClient, *grpc.ClientConn) {
+func Connect(addr string) {
+
 	// dial leader
 	var err error
-	//TODO: allow for secure connections, connections over a different(abstract) pipe
-	//TODO: replace the withInsecure with withTransportCredentials
-	// conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	conn, err := grpc.Dial(addr, grpc.WithInsecure())
+	conn, err = grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 		os.Exit(1)
 	}
-	raftServer := proto.NewRaftClient(conn)
 
-	return raftServer, conn
+	raftServer = proto.NewRaftClient(conn)
 }
 
 // ====
@@ -111,7 +108,7 @@ func Format(commandString string, sanitize bool) ([]string, error) {
 	return commands, nil
 }
 
-func Execute(commands []string, raftServer proto.RaftClient) (string, error) {
+func Execute(commands []string) (string, error) {
 	var buf bytes.Buffer
 	numCommands := len(commands)
 	fmt.Printf("Have num SQL commands to process: %v\n", numCommands)
@@ -165,7 +162,7 @@ func Execute(commands []string, raftServer proto.RaftClient) (string, error) {
 	return buf.String(), nil
 }
 
-func Repl(conn *grpc.ClientConn, raftServer proto.RaftClient) {
+func Repl() {
 	//handle signals appropriately; not quite like sqlite3
 	c := make(chan os.Signal, 1)
 	signal.Notify(c)
@@ -213,7 +210,7 @@ func Repl(conn *grpc.ClientConn, raftServer proto.RaftClient) {
 		if err != nil {
 			fmt.Println(err)
 		}
-		output, err := Execute(commands, raftServer)
+		output, err := Execute(commands)
 		if err != nil {
 			fmt.Println(err)
 		} else if output != "" {
@@ -222,12 +219,12 @@ func Repl(conn *grpc.ClientConn, raftServer proto.RaftClient) {
 		buf.Reset()
 	}
 
-	defer conn.Close()
+	conn.Close()
 }
 
-func Batch(batchedCommands string, raftServer proto.RaftClient) {
+func Batch(batchedCommands string) {
 	commands, _ := Format(batchedCommands, false)
-	_, err := Execute(commands, raftServer)
+	_, err := Execute(commands)
 	if err != nil {
 		fmt.Println(err)
 	} else {

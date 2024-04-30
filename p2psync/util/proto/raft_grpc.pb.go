@@ -58,8 +58,6 @@ func (c *raftClient) RequestVote(ctx context.Context, in *RequestVoteRequest, op
 
 func (c *raftClient) ClientCommand(ctx context.Context, in *ClientCommandRequest, opts ...grpc.CallOption) (*ClientCommandResponse, error) {
 	out := new(ClientCommandResponse)
-
-	//TODO: possible to use rpcs on non-dns reliant protocol?
 	err := c.cc.Invoke(ctx, "/proto.Raft/ClientCommand", in, out, opts...)
 	if err != nil {
 		return nil, err
