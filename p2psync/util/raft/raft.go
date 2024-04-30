@@ -46,6 +46,7 @@ const (
 
 // server is used to implement pb.RaftServer
 type Server struct {
+	//TODO: Implement the RaftServer interface backwards compat
 	pb.UnimplementedRaftServer
 
 	serverState ServerState

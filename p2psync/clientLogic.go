@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"strings"
 
+	"github.com/dlclark/regexp2"
 	"github.com/jaketrock/zome/sync/util"
 
 	"context"
@@ -77,11 +78,23 @@ func Sanitize(command string) error {
 }
 
 func Format(commandString string, sanitize bool) ([]string, error) {
+	// Split commands using regex to handle queries with ; in them
+	commandSplit := regexp2.MustCompile(`(?:^|;)([^';]*(?:'[^']*'[^';]*)*)(?=;|$)`, 0)
 
-	// TODO: (sternhenri) will need to use regexp.Split in order to not split strings containing ;
-	commands := strings.Split(commandString, ";")
-	// split adds an unwanted whitespace at end
-	commands = commands[:len(commands)-1]
+	var commands []string
+	m, err := commandSplit.FindStringMatch(commandString)
+
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("invalid command")
+	}
+
+	for m != nil {
+		commands = append(commands, m.String())
+		m, _ = commandSplit.FindNextMatch(m)
+	}
 
 	if sanitize {
 		for _, comm := range commands {
