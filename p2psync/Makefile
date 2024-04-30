@@ -77,3 +77,4 @@ hashCheck:
 clean:
 	rm -f zomeSync
 	rm -f sqlite-*
+	rm -f node*_output.txt
