@@ -127,9 +127,7 @@ func Execute(commands []string) (string, error) {
 		var err error
 
 		// 5 reconn attempts if leader failure
-		attempts := 5
-		for i := 1; i <= attempts; i++ {
-
+		for i := 0; i <= clientAttempts; i++ {
 			result, err = raftServer.ClientCommand(context.Background(), &commandRequest)
 			if result == nil {
 				fmt.Println("Trying again")
@@ -140,7 +138,7 @@ func Execute(commands []string) (string, error) {
 			}
 
 			if result.ResponseStatus == uint32(codes.FailedPrecondition) {
-				util.Log(util.WARN, "Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, attempts)
+				util.Log(util.WARN, "Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
 				Connect(result.NewLeaderId)
 				continue
 			}

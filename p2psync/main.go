@@ -18,6 +18,9 @@ import (
 const (
 	selectQuery          = "SELECT"
 	defaultServerAddress = "localhost:50051"
+
+	clientAttempts          = 5
+	clientRetryOnBadCommand = false
 )
 
 var isServer bool

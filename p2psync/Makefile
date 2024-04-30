@@ -15,41 +15,46 @@ hbuild:
 	CGO_ENABLED=1 $(GO) build -o zomeSync *.go
 
 runOneNode:
-	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50051
+	go run $(filter-out %_test.go,$(wildcard *.go)) --nodes=localhost:50051
 
 runThreeNodes:
-	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50051,localhost:50052,localhost:50053 >/tmp/node3_output.txt &
+	go run $(filter-out %_test.go,$(wildcard *.go)) --nodes=localhost:50051,localhost:50052,localhost:50053 > ./node3_output.txt &
 	echo "Started Node 3"
 
-	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50052,localhost:50051,localhost:50053 >/tmp/node2_output.txt &
+	go run $(filter-out %_test.go,$(wildcard *.go)) --nodes=localhost:50052,localhost:50051,localhost:50053 > ./node2_output.txt &
 	echo "Started Node 2"
 
-	go run $(filter-out %_test.go,$(wildcard *.go)) -nodes=localhost:50053,localhost:50052,localhost:50051 >/tmp/node1_output.txt &
+	go run $(filter-out %_test.go,$(wildcard *.go)) --nodes=localhost:50053,localhost:50052,localhost:50051 > ./node1_output.txt &
 	echo "Started all nodes"
+
+invalidTest:
+	echo "Running invalid test ...\n"
+	go run $(filter-out %_test.go,$(wildcard *.go)) --client=true --batch='./data/invalidTest.txt' --interactive=false
+	sha256sum sqlite-db-localhost-50051.db
 
 clientImportTest:
 	echo "Running SQL data import ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/clientImport.txt' --interactive=false
+	go run $(filter-out %_test.go,$(wildcard *.go)) --client=true --batch='./data/clientImport.txt' --interactive=false
 	sha256sum ./data/clientImport.db sqlite-db-localhost-50051.db
 
 wBench:
 	echo "Running SQL data bench write ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/wHeavy.txt' --interactive=false
+	go run $(filter-out %_test.go,$(wildcard *.go)) --client=true --batch='./data/wHeavy.txt' --interactive=false
 	sha256sum ./data/wHeavy.db sqlite-db-localhost-50051.db
 
 rBench:
 	echo "Running SQL data bench read ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true -batch='./data/rHeavy.txt' --interactive=false
+	go run $(filter-out %_test.go,$(wildcard *.go)) --client=true --batch='./data/rHeavy.txt' --interactive=false
 	sha256sum ./data/wHeavy.db sqlite-db-localhost-50051.db
 
 clientShell:
 	echo "opening client shell ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) -client=true --interactive=true
+	go run $(filter-out %_test.go,$(wildcard *.go)) --client=true --interactive=true
 
 killAll:
 	echo "Stopping all nodes ..."
-	pgrep -f "go.* -nodes=localhost:5"
-	pgrep -f "go.* -nodes=localhost:5" | xargs kill
+	pgrep -f "go.* --nodes=localhost:5"
+	pgrep -f "go.* --nodes=localhost:5" | xargs kill
 	echo "Done"
 
 protoCompile:

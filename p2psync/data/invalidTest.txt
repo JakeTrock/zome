@@ -1,0 +1,25 @@
+PRAGMA foreign_keys=OFF;
+CREATE TABLE "albums"
+(
+    [AlbumId] INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    [Title] NVARCHAR(160)  NOT NULL,
+    [ArtistId] INTEGER  NOT NULL,
+    FOREIGN KEY ([ArtistId]) REFERENCES "artists" ([ArtistId]) 
+        ON DELETE NO ACTION ON UPDATE NO ACTION
+);
+CREATE TABLE "tracks"
+(
+    [TrackId] INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    [Name] NVARCHAR(200)  NOT NULL,
+    [AlbumId] INTEGER,
+    [MediaTypeId] INTEGER  NOT NULL,
+    INTEGER,
+);
+insert into "albums" values(200004,'Facelift',5);
+INSERT INTO "albums" VALUES(' ','For Those About To Rock We Salute You',1);
+INSERT INTO "albums" VALUES(200001,'Balls to the Wall,2);
+INSERT INTO "albums" VALUES(200003,'Restless and Wild',2);
+INSERT INTO "albums" VALUES(20000,'Let There Be Rock',1);
+INSERT INTO "albums" VALUES(20000,'Big Ones',3);
+INSERT INTO "albums" VALUES(200010,'Jagged Little Pill',4);
+INSERT INTO "albums" VALUES(200011,'Warner 25 Anos',6);
