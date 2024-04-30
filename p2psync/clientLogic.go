@@ -59,7 +59,7 @@ func Sanitize(command string) error {
 		return errors.New("random() or other non-determinstic commands not supported")
 	}
 
-	// TODO(sternhenri): deal with utc modifier
+	// TODO: deal with utc modifier
 	if strings.Contains(upperC, "('NOW'") || strings.Contains(upperC, "'NOW')") {
 		return errors.New("now or other non-determinstic commands not supported")
 	}
@@ -145,7 +145,7 @@ func Execute(commands []string) (string, error) {
 				continue
 			}
 
-			// TODO: (sternhenri) may want to downgrade log fatals and not just abort if any query fails everywhere in the code
+			// TODO: may want to downgrade log fatals and not just abort if any query fails everywhere in the code
 			if result.ResponseStatus != uint32(codes.OK) {
 				return "", errors.New(result.QueryResponse)
 			} else {

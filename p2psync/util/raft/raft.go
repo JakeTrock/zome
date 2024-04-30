@@ -1727,7 +1727,7 @@ func GetHeartbeatIntervalMillis() int64 {
 
 // Instructions that leaders would be performing.
 func LeaderLoop() {
-	// TODO(jmuindi): implement.
+	// TODO: implement.
 	// Overview:
 	// - Reinitialize volatile leader state upon first leader succession.
 	// - Send initial empty append entries rpcs to clients as heartbeats. Repeat
@@ -1846,7 +1846,7 @@ func SendAppendEntriesReplicationRpcForFollower(serverIndex int, client pb.RaftC
 
 	// Otherwise, We need to send append entry rpc with log entries starting
 	// at nextIndex. For now, just send one at a time.
-	// TODO(jmuindi): Consider batching the rpcs for improved efficiency.
+	// TODO: Consider batching the rpcs for improved efficiency.
 	request := pb.AppendEntriesRequest{}
 	nextIndexZeroBased := nextIndex - 1
 
