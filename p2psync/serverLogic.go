@@ -18,7 +18,7 @@ func GetLocalPort(nodes []raft.Node) string {
 }
 
 // Returns other nodes in the cluster besides this one.
-func GetOtherNodes() []raft.Node {
+func GetOtherNodes(nodes []raft.Node) []raft.Node {
 	result := append([]raft.Node(nil), nodes...)
 	// Delete first element.
 	result = append(result[:0], result[1:]...)
