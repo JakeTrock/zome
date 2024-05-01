@@ -22,6 +22,9 @@ const (
 func main() {
 	// server state
 	client := flag.Bool("client", false, "Whether to start in client mode.")
+	// logging flags
+	logLevel := flag.Int("log", util.EXTRA_VERBOSE, "Logging level. One of {ERROR, WARN, INFO, VERBOSE, EXTRA_VERBOSE}")
+	debug := flag.Bool("v", false, "Whether to enable debug logging.")
 	// client flags
 	serverAddress := flag.String("server", defaultServerAddress, "Address of Raft Cluster Leader.")
 	cmdFile := flag.String("batch", "", "Relative path to a command file to run in batch mode.")
@@ -34,7 +37,8 @@ func main() {
 	flag.Parse()
 
 	logger := util.Logger{
-		Level: util.EXTRA_VERBOSE,
+		Level:        uint(*logLevel),
+		DebugEnabled: *debug,
 	}
 
 	if *client {

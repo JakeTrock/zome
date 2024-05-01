@@ -17,12 +17,9 @@ const (
 	EXTRA_VERBOSE
 )
 
-const (
-	DEBUG_ENABLED = false
-)
-
 type Logger struct {
-	Level uint
+	DebugEnabled bool
+	Level        uint
 }
 
 // Logs a message if debugging upto to given level is enabled.
@@ -30,7 +27,7 @@ type Logger struct {
 // format: format string
 // v : optional list of formatted parameters in format string.
 func (lg *Logger) Log(debugLevel uint, format string, v ...interface{}) {
-	if !DEBUG_ENABLED {
+	if !lg.DebugEnabled {
 		return
 	}
 
