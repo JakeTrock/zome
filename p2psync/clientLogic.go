@@ -5,16 +5,16 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
 
 	"github.com/dlclark/regexp2"
-	"github.com/jaketrock/zome/sync/util"
+	"github.com/rs/zerolog"
 
 	"context"
 
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 
@@ -24,18 +24,19 @@ import (
 type zomeClient struct {
 	raftServer proto.RaftClient
 	conn       *grpc.ClientConn
-	log        *util.Logger
 }
 
-func InitializeClient(logger *util.Logger, serverAddress string, cmdFile string, interactive bool) *zomeClient {
-	zClient := &zomeClient{
-		log: logger,
-	}
+func InitializeClient(logLevel zerolog.Level, serverAddress string, cmdFile string, interactive bool) *zomeClient {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	zerolog.SetGlobalLevel(logLevel)
+	zClient := &zomeClient{}
 	zClient.Connect(serverAddress)
 	if cmdFile != "" {
 		content, err := os.ReadFile(cmdFile)
 		if err != nil {
-			log.Fatal(err)
+			log.Error().Msgf("Error reading file: %v", err)
+			os.Exit(1)
 		}
 
 		zClient.Batch(string(content))
@@ -60,7 +61,7 @@ func (zc *zomeClient) Connect(addr string) {
 	//TODO: add secure dialing and multimodal dialing(e.g. over lora)
 	zc.conn, err = grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		log.Error().Msgf("did not connect: %v", err)
 		os.Exit(1)
 	}
 
@@ -121,7 +122,7 @@ func (zc *zomeClient) Format(commandString string, sanitize bool) ([]string, err
 		commands = append(commands, m.String())
 		m, err = commandSplit.FindNextMatch(m)
 		if err != nil {
-			zc.log.Log(util.ERROR, "Error parsing command: %v", err)
+			log.Error().Msgf("Error parsing command: %v", err)
 		}
 	}
 
@@ -159,10 +160,10 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 		for i := 0; i <= clientAttempts; i++ {
 			result, err = zc.raftServer.ClientCommand(context.Background(), &commandRequest)
 			if result == nil {
-				zc.log.Log(util.ERROR, "Error sending command to node %v err: %v", zc.raftServer, err)
+				log.Error().Msgf("Error sending command to node %v err: %v", zc.raftServer, err)
 			}
 			if err != nil {
-				zc.log.Log(util.ERROR, "Error sending command to node %v err: %v", zc.raftServer, err)
+				log.Error().Msgf("Error sending command to node %v err: %v", zc.raftServer, err)
 				if clientRetryOnBadCommand {
 					continue
 				}
@@ -170,7 +171,7 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 			}
 
 			if result.ResponseStatus == uint32(codes.FailedPrecondition) {
-				zc.log.Log(util.WARN, "Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
+				log.Warn().Msgf("Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
 				zc.Connect(result.NewLeaderId)
 				continue
 			}
@@ -215,7 +216,7 @@ func (zc *zomeClient) HandleSignals() {
 		fmt.Print("ZDB> ")
 		text, err := reader.ReadString('\n')
 		if err != nil {
-			zc.log.Log(util.ERROR, "Error reading input: %v", err)
+			log.Error().Msgf("Error reading input: %v", err)
 		}
 		text = strings.TrimSpace(text)
 
@@ -233,7 +234,7 @@ func (zc *zomeClient) HandleSignals() {
 			fmt.Print("     ...> ")
 			text, err := reader.ReadString('\n')
 			if err != nil {
-				zc.log.Log(util.ERROR, "Error reading input: %v", err)
+				log.Error().Msgf("Error reading input: %v", err)
 			}
 			text = strings.TrimSpace(text)
 
@@ -247,13 +248,13 @@ func (zc *zomeClient) HandleSignals() {
 		buf.WriteString(text)
 		commands, err := zc.Format(buf.String(), true)
 		if err != nil {
-			zc.log.Log(util.ERROR, "Error parsing command: %v", err)
+			log.Error().Msgf("Error parsing command: %v", err)
 		}
 		output, err := zc.Execute(commands)
 		if err != nil {
-			zc.log.Log(util.ERROR, "Error executing command: %v", err)
+			log.Error().Msgf("Error executing command: %v", err)
 		} else if output != "" {
-			zc.log.Log(util.INFO, "Output: %v", output)
+			log.Info().Msgf("Output: %v", output)
 		}
 		buf.Reset()
 	}
@@ -264,12 +265,12 @@ func (zc *zomeClient) HandleSignals() {
 func (zc *zomeClient) Batch(batchedCommands string) {
 	commands, err := zc.Format(batchedCommands, false)
 	if err != nil {
-		zc.log.Log(util.ERROR, "Error parsing command: %v", err)
+		log.Error().Msgf("Error parsing command: %v", err)
 	}
 	_, err = zc.Execute(commands)
 	if err != nil {
-		zc.log.Log(util.ERROR, "Error executing command: %v", err)
+		log.Error().Msgf("Error executing command: %v", err)
 	} else {
-		zc.log.Log(util.INFO, "Batch executed")
+		log.Info().Msgf("Batch executed")
 	}
 }

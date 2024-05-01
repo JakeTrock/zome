@@ -4,11 +4,11 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
+	"os"
 
-	"github.com/jaketrock/zome/sync/util"
 	"github.com/jaketrock/zome/sync/util/raft"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -23,8 +23,8 @@ func main() {
 	// server state
 	client := flag.Bool("client", false, "Whether to start in client mode.")
 	// logging flags
-	logLevel := flag.Int("log", util.EXTRA_VERBOSE, "Logging level. One of {ERROR, WARN, INFO, VERBOSE, EXTRA_VERBOSE}")
-	debug := flag.Bool("v", false, "Whether to enable debug logging.")
+	logLevelInput := flag.Int("log", int(zerolog.InfoLevel), "Logging level. One of panic(5), fatal(4), error(3), warn(2), info(1), debug(0), trace(-1)")
+	logPath := flag.String("logPath", "", "Path to optional log output file.")
 	// client flags
 	serverAddress := flag.String("server", defaultServerAddress, "Address of Raft Cluster Leader.")
 	cmdFile := flag.String("batch", "", "Relative path to a command file to run in batch mode.")
@@ -36,29 +36,63 @@ func main() {
 			" is what used to start the local raft server.")
 	flag.Parse()
 
-	logger := util.Logger{
-		Level:        uint(*logLevel),
-		DebugEnabled: *debug,
+	var logLevel zerolog.Level
+	switch *logLevelInput {
+	case 0:
+		logLevel = zerolog.TraceLevel
+	case 1:
+		logLevel = zerolog.DebugLevel
+	case 2:
+		logLevel = zerolog.WarnLevel
+	case 3:
+		logLevel = zerolog.ErrorLevel
+	case 4:
+		logLevel = zerolog.FatalLevel
+	case 5:
+		logLevel = zerolog.PanicLevel
+	default:
+		logLevel = zerolog.InfoLevel
+	}
+
+	if *logPath != "" {
+		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+		zerolog.SetGlobalLevel(logLevel)
+		zerolog.SetGlobalLevel(logLevel)
+
+		// create log file if it doesn't exist
+		if _, err := os.Stat(*logPath); os.IsNotExist(err) {
+			f, err := os.Create(*logPath)
+			if err != nil {
+				panic(err)
+			}
+			log.Logger = log.Output(f)
+		} else {
+			f, err := os.OpenFile(*logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				panic(err)
+			}
+			log.Logger = log.Output(f)
+		}
 	}
 
 	if *client {
 		// client mode
-		fmt.Println("Starting in client mode")
+		log.Info().Msg("Starting in client mode")
 
-		zClient := InitializeClient(&logger, *serverAddress, *cmdFile, *interactive)
+		zClient := InitializeClient(logLevel, *serverAddress, *cmdFile, *interactive)
 		zClient.HandleSignals()
 	} else {
 		// server mode
-		fmt.Println("Starting in server mode")
+		log.Info().Msg("Starting in server mode")
 
 		nodes := ParseNodes(*nodesPtr)
 		port := GetLocalPort(nodes)
 		otherNodes := GetOtherNodes(nodes)
 		localNode := GetLocalNode(nodes)
-		log.Printf(" Starting Raft Server listening at: %v", port)
-		log.Printf("All Node addresses: %v", nodes)
-		log.Printf("Other Node addresses: %v", otherNodes)
-		rs := raft.GetInitialServer(&logger)
+		log.Info().Msgf(" Starting Raft Server listening at: %v", port)
+		log.Info().Msgf("All Node addresses: %v", nodes)
+		log.Info().Msgf("Other Node addresses: %v", otherNodes)
+		rs := raft.GetInitialServer(logLevel)
 		rs.StartServer(localNode, otherNodes)
 	}
 }

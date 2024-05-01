@@ -3,7 +3,6 @@
 package raft
 
 import (
-	"log"
 	"net"
 
 	"math/rand"
@@ -13,8 +12,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
-
-	"github.com/jaketrock/zome/sync/util"
 
 	"bytes"
 	"sync"
@@ -27,6 +24,9 @@ import (
 	// Import for sqlite3 support.
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	_ "github.com/mattn/go-sqlite3"
 	"google.golang.org/protobuf/proto"
@@ -84,8 +84,6 @@ type Server struct {
 
 	// Mutex to synchronize concurrent access to data structure
 	lock sync.Mutex
-
-	log util.Logger
 }
 
 // Overall type for the messages processed by the event-loop.
@@ -204,7 +202,7 @@ func (raftServer *Server) SetPersistentVotedForLocked(newValue string) {
 
 	rows, err := raftServer.raftLogDb.Query("SELECT value FROM RaftKeyValue WHERE key = 'votedFor'")
 	if err != nil {
-		log.Fatalf("Failed to read persisted voted for while trying to update it. err: %v", err)
+		log.Debug().Msgf("Failed to read persisted voted for while trying to update it. err: %v", err)
 	}
 	defer rows.Close()
 	votedForExists := false
@@ -212,7 +210,7 @@ func (raftServer *Server) SetPersistentVotedForLocked(newValue string) {
 		var valueStr string
 		err = rows.Scan(&valueStr)
 		if err != nil {
-			log.Fatalf("Error  reading persisted voted for row while try to update: %v", err)
+			log.Error().Msgf("Error  reading persisted voted for row while try to update: %v", err)
 		}
 		votedForExists = true
 	}
@@ -220,7 +218,7 @@ func (raftServer *Server) SetPersistentVotedForLocked(newValue string) {
 	// Now proceed with the update/insertion.
 	tx, err := raftServer.raftLogDb.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin db tx to update voted for. err:%v", err)
+		log.Error().Msgf("Failed to begin db tx to update voted for. err:%v", err)
 	}
 
 	needUpdate := votedForExists
@@ -228,26 +226,30 @@ func (raftServer *Server) SetPersistentVotedForLocked(newValue string) {
 	if needUpdate {
 		statement, err = tx.Prepare("UPDATE RaftKeyValue SET value = ? WHERE key = ?")
 		if err != nil {
-			log.Fatalf("Failed to prepare stmt to update voted for. err: %v", err)
+			log.Error().Msgf("Failed to prepare stmt to update voted for. err: %v", err)
 		}
 		_, err = statement.Exec(newValue, "votedFor")
 		if err != nil {
-			log.Fatalf("Failed to update voted for value. err: %v", err)
+			log.Error().Msgf("Failed to update voted for value. err: %v", err)
+		} else {
+			log.Debug().Msgf("Successfully updated voted for value.")
 		}
 	} else {
 		statement, err = tx.Prepare("INSERT INTO RaftKeyValue(key, value) values(?, ?)")
 		if err != nil {
-			log.Fatalf("Failed to create stmt to insert voted for. err: %v", err)
+			log.Error().Msgf("Failed to create stmt to insert voted for. err: %v", err)
 		}
 		_, err = statement.Exec("votedFor", newValue)
 		if err != nil {
-			log.Fatalf("Failed to insert voted for value. err: %v", err)
+			log.Error().Msgf("Failed to insert voted for value. err: %v", err)
+		} else {
+			log.Debug().Msgf("Successfully inserted voted for value.")
 		}
 	}
 	defer statement.Close()
 	err = tx.Commit()
 	if err != nil {
-		log.Fatalf("Failed to commit tx to update voted for. err: %v", err)
+		log.Error().Msgf("Failed to commit tx to update voted for. err: %v", err)
 	}
 
 	// Then update in-memory state last.
@@ -278,7 +280,7 @@ func (raftServer *Server) SetPersistentCurrentTermLocked(newValue int64) {
 
 	rows, err := raftServer.raftLogDb.Query("SELECT value FROM RaftKeyValue WHERE key = 'currentTerm'")
 	if err != nil {
-		log.Fatalf("Failed to read persisted current term while trying to update it. err: %v", err)
+		log.Error().Msgf("Failed to read persisted current term while trying to update it. err: %v", err)
 	}
 	defer rows.Close()
 	valueExists := false
@@ -286,7 +288,7 @@ func (raftServer *Server) SetPersistentCurrentTermLocked(newValue int64) {
 		var valueStr string
 		err = rows.Scan(&valueStr)
 		if err != nil {
-			log.Fatalf("Error reading persisted currentTerm row while try to update: %v", err)
+			log.Error().Msgf("Error reading persisted currentTerm row while try to update: %v", err)
 		}
 		valueExists = true
 	}
@@ -295,7 +297,7 @@ func (raftServer *Server) SetPersistentCurrentTermLocked(newValue int64) {
 
 	tx, err := raftServer.raftLogDb.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin db tx to update current term. err:%v", err)
+		log.Error().Msgf("Failed to begin db tx to update current term. err:%v", err)
 	}
 
 	newValueStr := strconv.FormatInt(newValue, 10)
@@ -304,27 +306,27 @@ func (raftServer *Server) SetPersistentCurrentTermLocked(newValue int64) {
 		// Then update it.
 		statement, err = tx.Prepare("UPDATE RaftKeyValue SET value = ? WHERE key = ?")
 		if err != nil {
-			log.Fatalf("Failed to prepare stmt to update current term. err: %v", err)
+			log.Error().Msgf("Failed to prepare stmt to update current term. err: %v", err)
 		}
 		_, err = statement.Exec(newValueStr, "currentTerm")
 		if err != nil {
-			log.Fatalf("Failed to update current term value. err: %v", err)
+			log.Error().Msgf("Failed to update current term value. err: %v", err)
 		}
 	} else {
 		// Insert a brand new one.
 		statement, err = tx.Prepare("INSERT INTO RaftKeyValue(key, value) values(?, ?)")
 		if err != nil {
-			log.Fatalf("Failed to create stmt to insert current term. err: %v", err)
+			log.Error().Msgf("Failed to create stmt to insert current term. err: %v", err)
 		}
 		_, err = statement.Exec("currentTerm", newValueStr)
 		if err != nil {
-			log.Fatalf("Failed to insert currentTerm value. err: %v", err)
+			log.Error().Msgf("Failed to insert currentTerm value. err: %v", err)
 		}
 	}
 	defer statement.Close()
 	err = tx.Commit()
 	if err != nil {
-		log.Fatalf("Failed to commit tx to update current term. err: %v", err)
+		log.Error().Msgf("Failed to commit tx to update current term. err: %v", err)
 	}
 
 	// Then update in memory state last.
@@ -348,25 +350,25 @@ func (raftServer *Server) AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
 	// Update database (stable storage first).
 	tx, err := raftServer.raftLogDb.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin db tx. Err: %v", err)
+		log.Error().Msgf("Failed to begin db tx. Err: %v", err)
 	}
 	statement, err := tx.Prepare("INSERT INTO RaftLog(log_index, log_entry) values(?, ?)")
 	if err != nil {
-		log.Fatalf("Failed to prepare sql statement to add log entry. err: %v", err)
+		log.Error().Msgf("Failed to prepare sql statement to add log entry. err: %v", err)
 	}
 	defer statement.Close()
 	protoByte, err := proto.Marshal(newValue)
 	if err != nil {
-		log.Fatalf("Failed to marshal log entry proto. err: %v", err)
+		log.Error().Msgf("Failed to marshal log entry proto. err: %v", err)
 	}
 	protoByteText := string(protoByte)
 	_, err = statement.Exec(nextIndex, protoByteText)
 	if err != nil {
-		log.Fatalf("Failed to execute sql statement to add log entry. err: %v", err)
+		log.Error().Msgf("Failed to execute sql statement to add log entry. err: %v", err)
 	}
 	err = tx.Commit()
 	if err != nil {
-		log.Fatalf("Failed to commit tx to add log entry. err: %v", err)
+		log.Error().Msgf("Failed to commit tx to add log entry. err: %v", err)
 	}
 
 	raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log, &diskEntry)
@@ -385,22 +387,22 @@ func (raftServer *Server) DeletePersistentLogEntryInclusiveLocked(startDeleteLog
 	// Delete first from database storage.
 	tx, err := raftServer.raftLogDb.Begin()
 	if err != nil {
-		log.Fatalf("Failed to begin db tx for delete log entries. err: %v", err)
+		log.Error().Msgf("Failed to begin db tx for delete log entries. err: %v", err)
 	}
 
 	statement, err := tx.Prepare("DELETE FROM RaftLog WHERE log_index >= ?")
 	if err != nil {
-		log.Fatalf("Failed to prepare sql statement to delete log entry. err: %v", err)
+		log.Error().Msgf("Failed to prepare sql statement to delete log entry. err: %v", err)
 	}
 	defer statement.Close()
 
 	_, err = statement.Exec(startDeleteLogIndex)
 	if err != nil {
-		log.Fatalf("Failed to execute sql statement to delete log entry. err: %v", err)
+		log.Error().Msgf("Failed to execute sql statement to delete log entry. err: %v", err)
 	}
 	err = tx.Commit()
 	if err != nil {
-		log.Fatalf("Failed to commit tx to delete log entry. err: %v", err)
+		log.Error().Msgf("Failed to commit tx to delete log entry. err: %v", err)
 	}
 
 	// Finally update the in-memory state.
@@ -522,9 +524,10 @@ type Node struct {
 func (raftServer *Server) ConnectToServer(address string) pb.RaftClient {
 	// Set up a connection to the server. Note: this is not a blocking call.
 	// Connection will be setup in the background.
+	//TODO: remove deprecated grpc.WithInsecure() option
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		log.Error().Msgf("Failed to connect to server at: %v", address)
 	}
 	c := pb.NewRaftClient(conn)
 
@@ -537,9 +540,9 @@ func (raftServer *Server) StartServer(localNode Node, otherNodes []Node) *grpc.S
 	addressPort := ":" + localNode.Port
 	lis, err := net.Listen("tcp", addressPort)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		log.Error().Msgf("Failed to listen on: %v", addressPort)
 	}
-	raftServer.log.Log(util.INFO, "Created Raft server at: %v", lis.Addr().String())
+	log.Debug().Msgf("Created Raft server at: %v", lis.Addr().String())
 	s := grpc.NewServer()
 
 	log.Printf("Initial Server state: %v", raftServer.serverState)
@@ -555,7 +558,7 @@ func (raftServer *Server) StartServer(localNode Node, otherNodes []Node) *grpc.S
 
 	// Note: the Serve call is blocking.
 	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
+		log.Error().Msgf("Failed to serve on: %v", addressPort)
 	}
 
 	return s
@@ -577,7 +580,7 @@ func (raftServer *Server) IsCandidate() bool {
 }
 
 // Returns initial server state.
-func GetInitialServer(logger *util.Logger) *Server {
+func GetInitialServer(logLevel zerolog.Level) *Server {
 	result := Server{
 		serverState: Follower,
 		raftConfig: RaftConfig{
@@ -588,8 +591,11 @@ func GetInitialServer(logger *util.Logger) *Server {
 		// We initialize last heartbeat time at startup because all servers start out
 		// in follower and this allows a node to determine when it should be a candidate.
 		lastHeartbeatTimeMillis: UnixMillis(),
-		log:                     *logger,
 	}
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	zerolog.SetGlobalLevel(logLevel)
+
 	return &result
 }
 
@@ -688,11 +694,11 @@ func (raftServer *Server) InitializeRaft(addressPort string, otherNodes []Node) 
 func (raftServer *Server) InitializeDatabases() {
 	raftDbLog, err := sql.Open("sqlite3", raftServer.GetSqliteRaftLogPath())
 	if err != nil {
-		log.Fatalf("Failed to open raft db log: %v err: %v", raftServer.GetSqliteRaftLogPath(), err)
+		log.Error().Msgf("Failed to open raft db log.")
 	}
 	replicatedStateMachineDb, err := sql.Open("sqlite3", raftServer.GetSqliteReplicatedStateMachineOpenPath())
 	if err != nil {
-		log.Fatalf("Failed to open replicated state machine database. Path: %v err: %v", raftServer.GetSqliteReplicatedStateMachineOpenPath(), err)
+		log.Error().Msgf("Failed to open replicated state machine database.")
 	}
 
 	raftDbLog.Exec("pragma database_list")
@@ -710,7 +716,7 @@ func (raftServer *Server) InitializeDatabases() {
         `
 	_, err = raftDbLog.Exec(raftLogTableCreateStatement)
 	if err != nil {
-		log.Fatalf("Failed to Create raft log table. sql: %v err: %v", raftLogTableCreateStatement, err)
+		log.Error().Msgf("Created Raft Log table.")
 	}
 
 	raftKeyValueCreateStatement :=
@@ -720,7 +726,7 @@ func (raftServer *Server) InitializeDatabases() {
         `
 	_, err = raftDbLog.Exec(raftKeyValueCreateStatement)
 	if err != nil {
-		log.Fatalf("Failed to create raft key value table. sql: %v, err: %v", raftKeyValueCreateStatement, err)
+		log.Error().Msgf("Created Raft Log and Raft Key Value tables.")
 	}
 
 	raftServer.sqlDb = replicatedStateMachineDb
@@ -731,10 +737,10 @@ func (raftServer *Server) InitializeDatabases() {
 
 // Loads the on disk persistent state into memory.
 func (raftServer *Server) LoadPersistentStateIntoMemory() {
-	raftServer.log.Log(util.INFO, "Before load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
+	log.Debug().Msgf("Before load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
 	raftServer.LoadPersistentLog()
 	raftServer.LoadPersistentKeyValues()
-	raftServer.log.Log(util.INFO, "After load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
+	log.Debug().Msgf("After load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
 }
 
 func (raftServer *Server) LoadPersistentKeyValues() {
@@ -746,17 +752,17 @@ func (raftServer *Server) LoadPersistentKeyValues() {
 func (raftServer *Server) LoadPersistedVotedFor() {
 	rows, err := raftServer.raftLogDb.Query("SELECT value FROM RaftKeyValue WHERE key = 'votedFor';")
 	if err != nil {
-		log.Fatalf("Failed to read votedFor value into memory. err: %v", err)
+		log.Error().Msgf("Failed to read votedFor value into memory.")
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var valueStr string
 		err = rows.Scan(&valueStr)
 		if err != nil {
-			log.Fatalf("Failed to read votedFor row entry. err: %v", err)
+			log.Error().Msgf("Failed to read votedFor row entry.")
 		}
 
-		raftServer.log.Log(util.INFO, "Restoring votedFor value to memory: %v", valueStr)
+		log.Debug().Msgf("Restoring votedFor value to memory: %v", valueStr)
 		raftServer.raftState.persistentState.votedFor = valueStr
 	}
 }
@@ -764,20 +770,20 @@ func (raftServer *Server) LoadPersistedVotedFor() {
 func (raftServer *Server) LoadPersistedCurrentTerm() {
 	rows, err := raftServer.raftLogDb.Query("SELECT value FROM RaftKeyValue WHERE key = 'currentTerm';")
 	if err != nil {
-		log.Fatalf("Failed to read current term value into memory. err: %v", err)
+		log.Error().Msgf("Failed to read current term value into memory.")
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var valueStr string
 		err = rows.Scan(&valueStr)
 		if err != nil {
-			log.Fatalf("Failed to read current term row entry. err: %v", err)
+			log.Error().Msgf("Failed to read current term row entry.")
 		}
 		restoredTerm, err := strconv.ParseInt(valueStr, 10, 64)
 		if err != nil {
-			log.Fatalf("Failed to parse current term as integer. value: %v err: %v", valueStr, err)
+			log.Error().Msgf("Failed to parse current term as integer.")
 		}
-		raftServer.log.Log(util.INFO, "Restoring current term to memory: %v", restoredTerm)
+		log.Debug().Msgf("Restoring current term to memory: %v", restoredTerm)
 		raftServer.raftState.persistentState.currentTerm = restoredTerm
 	}
 }
@@ -785,7 +791,7 @@ func (raftServer *Server) LoadPersistedCurrentTerm() {
 func (raftServer *Server) LoadPersistentLog() {
 	rows, err := raftServer.raftLogDb.Query("SELECT log_index, log_entry FROM RaftLog ORDER BY log_index ASC;")
 	if err != nil {
-		log.Fatalf("Failed to load raft persistent state into memory. err: %v", err)
+		log.Error().Msgf("Failed to load raft persistent state into memory.")
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -793,14 +799,14 @@ func (raftServer *Server) LoadPersistentLog() {
 		var logEntryProtoText string
 		err = rows.Scan(&logIndex, &logEntryProtoText)
 		if err != nil {
-			log.Fatalf("Failed to read raft log row entry. err: %v ", err)
+			log.Error().Msgf("Failed to read raft log row entry.")
 		}
-		raftServer.log.Log(util.INFO, "Restoring raft log to memory: %v, %v", logIndex, logEntryProtoText)
+		log.Debug().Msgf("Restoring raft log to memory: %v, %v", logIndex, logEntryProtoText)
 
 		var parsedLogEntry pb.LogEntry
 		err := proto.Unmarshal([]byte(logEntryProtoText), &parsedLogEntry)
 		if err != nil {
-			log.Fatalf("Error parsing log entry proto: %v err: %v", logEntryProtoText, err)
+			log.Error().Msgf("Error parsing log entry proto: %v", logEntryProtoText)
 		}
 		diskLogEntry := pb.DiskLogEntry{
 			LogIndex: logIndex,
@@ -814,13 +820,13 @@ func (raftServer *Server) LoadPersistentLog() {
 // Moves the commit index forward from the current value to the given index.
 // Note: newIndex should be the log index value which is 1-based.
 func (raftServer *Server) MoveCommitIndexTo(newIndex int64) {
-	raftServer.log.Log(util.WARN, "MoveCommitIndexTo newIndex: %v", newIndex)
+	log.Info().Msgf("MoveCommitIndexTo newIndex: %v", newIndex)
 
 	startCommitIndex := raftServer.GetCommitIndex()
 	newCommitIndex := newIndex
 
 	if newCommitIndex < startCommitIndex {
-		log.Fatalf("Commit index trying to move backwards. ")
+		log.Error().Msgf("Commit index trying to move backwards.")
 	}
 
 	startCommitIndexZeroBased := startCommitIndex - 1
@@ -830,7 +836,7 @@ func (raftServer *Server) MoveCommitIndexTo(newIndex int64) {
 	commands := raftLog[startCommitIndexZeroBased+1 : newCommitIndexZeroBased+1]
 	for _, cmd := range commands {
 		if newCommitIndex > raftServer.GetLastApplied() {
-			raftServer.log.Log(util.INFO, "Applying log entry: %v", cmd.String())
+			log.Debug().Msgf("Applying log entry: %v", cmd.String())
 			raftServer.ApplySqlCommand(cmd.LogEntry.Data)
 			raftServer.SetLastApplied(cmd.LogIndex)
 		}
@@ -852,7 +858,7 @@ func (raftServer *Server) TimeSinceLastHeartBeatMillis() int64 {
 	now := UnixMillis()
 	diffMs := now - raftServer.GetLastHeartbeatTimeMillis()
 	if diffMs < 0 {
-		raftServer.log.Log(util.WARN, "Negative time since last heartbeat. Assuming 0.")
+		log.Warn().Msgf("Negative time since last heartbeat. Assuming 0.")
 		diffMs = 0
 	}
 	return diffMs
@@ -990,7 +996,7 @@ func (raftServer *Server) FollowerLoop() {
 	// as specified on figure 2 is covered because when after becoming a candidate
 	// we vote for our self and the event loop code structure for rpcs processing
 	// guarantees we won't vote for anyone else.
-	raftServer.log.Log(util.INFO, "Starting  follower loop")
+	log.Debug().Msgf("Starting  follower loop")
 	raftServer.ResetElectionTimeOut()
 	rpcCount := 0
 	for {
@@ -1003,7 +1009,7 @@ func (raftServer *Server) FollowerLoop() {
 
 		select {
 		case event := <-raftServer.events:
-			raftServer.log.Log(util.VERBOSE, "Processing rpc #%v event: %v", rpcCount, event)
+			log.Debug().Msgf("Processing rpc #%v event: %v", rpcCount, event)
 			raftServer.handleRpcEvent(event)
 			rpcCount++
 		case <-timeoutTimer.C:
@@ -1022,7 +1028,7 @@ func (raftServer *Server) handleRpcEvent(event Event) {
 	} else if event.rpc.clientCommand != nil {
 		raftServer.handleClientCommandRpc(event.rpc.clientCommand)
 	} else {
-		log.Fatalf("Unexpected rpc event: %v", event)
+		log.Error().Msgf("Unexpected rpc event: %v", event)
 	}
 }
 
@@ -1030,7 +1036,7 @@ func (raftServer *Server) handleRpcEvent(event Event) {
 func (raftServer *Server) handleClientCommandRpc(event *RaftClientCommandRpcEvent) {
 	if !raftServer.IsLeader() {
 		result := pb.ClientCommandResponse{}
-		raftServer.log.Log(util.WARN, "Rejecting client command because not leader")
+		log.Warn().Msgf("Rejecting client command because not leader")
 		result.ResponseStatus = uint32(codes.FailedPrecondition)
 		result.NewLeaderId = raftServer.GetLeaderId()
 		event.responseChan <- &result
@@ -1044,7 +1050,7 @@ func (raftServer *Server) handleClientCommandRpc(event *RaftClientCommandRpcEven
 	} else {
 		// Invalid / unexpected request.
 		result := pb.ClientCommandResponse{}
-		raftServer.log.Log(util.WARN, "Invalid client command (not command/query): %v", event)
+		log.Warn().Msgf("Invalid client command (not command/query): %v", event)
 		result.ResponseStatus = uint32(codes.InvalidArgument)
 		event.responseChan <- &result
 		return
@@ -1054,13 +1060,13 @@ func (raftServer *Server) handleClientCommandRpc(event *RaftClientCommandRpcEven
 
 func (raftServer *Server) handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 	sqlQuery := event.request.Query
-	raftServer.log.Log(util.INFO, "Servicing SQL query: %v", sqlQuery)
+	log.Debug().Msgf("Servicing SQL query: %v", sqlQuery)
 
 	result := pb.ClientCommandResponse{}
 
 	rows, err := raftServer.sqlDb.Query(sqlQuery)
 	if err != nil {
-		raftServer.log.Log(util.WARN, "Sql query error: %v", err)
+		log.Warn().Msgf("Sql query error: %v", err)
 		result.ResponseStatus = uint32(codes.Aborted)
 		result.QueryResponse = err.Error()
 		event.responseChan <- &result
@@ -1070,7 +1076,7 @@ func (raftServer *Server) handleClientQueryCommand(event *RaftClientCommandRpcEv
 
 	columns, err := rows.Columns()
 	if err != nil {
-		raftServer.log.Log(util.WARN, "Sql cols query error: %v", err)
+		log.Warn().Msgf("Sql cols query error: %v", err)
 		result.ResponseStatus = uint32(codes.Aborted)
 		result.QueryResponse = err.Error()
 		event.responseChan <- &result
@@ -1089,7 +1095,7 @@ func (raftServer *Server) handleClientQueryCommand(event *RaftClientCommandRpcEv
 	for rows.Next() {
 		err = rows.Scan(tempData...)
 		if err != nil {
-			raftServer.log.Log(util.WARN, "Sql query error. Partial data return: %v", err)
+			log.Warn().Msgf("Sql query error. Partial data return: %v", err)
 			continue
 		}
 
@@ -1122,11 +1128,11 @@ func (raftServer *Server) handleClientMutateCommand(event *RaftClientCommandRpcE
 	raftServer.appendCommandToLocalLog(event)
 	replicationSuccess := raftServer.IssueAppendEntriesRpcToMajorityNodes(event)
 	if replicationSuccess {
-		raftServer.log.Log(util.INFO, "Command replicated successfully")
+		log.Debug().Msgf("Command replicated successfully")
 		result.ResponseStatus = uint32(codes.OK)
 		raftServer.ApplyCommandToStateMachine(event)
 	} else {
-		raftServer.log.Log(util.ERROR, "Failed to replicate command")
+		log.Error().Msgf("Failed to replicate command")
 		result.ResponseStatus = uint32(codes.Aborted)
 	}
 	event.responseChan <- &result
@@ -1135,7 +1141,7 @@ func (raftServer *Server) handleClientMutateCommand(event *RaftClientCommandRpcE
 // Applies the command to the local state machine. For us this, this is to apply the
 // sql command.
 func (raftServer *Server) ApplyCommandToStateMachine(event *RaftClientCommandRpcEvent) {
-	raftServer.log.Log(util.INFO, "Update State machine with command: %v", event.request.Command)
+	log.Debug().Msgf("Update State machine with command: %v", event.request.Command)
 	raftServer.ApplySqlCommand(event.request.Command)
 }
 
@@ -1149,7 +1155,7 @@ func (raftServer *Server) ApplySqlCommand(sqlCommand string) {
 func (raftServer *Server) ApplySqlCommandLocked(sqlCommand string) {
 	_, err := raftServer.sqlDb.Exec(sqlCommand)
 	if err != nil {
-		raftServer.log.Log(util.WARN, "Sql application execution warning: %v", err)
+		log.Warn().Msgf("Sql application execution warning: %v", err)
 	}
 }
 
@@ -1222,18 +1228,18 @@ func (raftServer *Server) IssueAppendEntriesRpcToNode(request *pb.ClientCommandR
 
 	appendEntryRequest.Entries = append(appendEntryRequest.Entries, &newEntry)
 
-	raftServer.log.Log(util.INFO, "Sending appending entry RPC: %v", appendEntryRequest.String())
+	log.Debug().Msgf("Sending appending entry RPC: %v", appendEntryRequest.String())
 	result, err := client.AppendEntries(context.Background(), &appendEntryRequest)
 	if err != nil {
-		raftServer.log.Log(util.ERROR, "Error issuing append entry to node: %v err:%v", client, err)
+		log.Error().Msgf("Error issuing append entry to node: %v err:%v", client, err)
 		return false
 	}
 	if result.ResponseStatus != uint32(codes.OK) {
-		raftServer.log.Log(util.ERROR, "Error issuing append entry to node: %v response code:%v", client, result.ResponseStatus)
+		log.Error().Msgf("Error issuing append entry to node: %v response code:%v", client, result.ResponseStatus)
 		return false
 	}
 
-	raftServer.log.Log(util.INFO, "AppendEntry Response from node: %v response: %v", client, result.String())
+	log.Debug().Msgf("AppendEntry Response from node: %v response: %v", client, result.String())
 	if result.Term > raftServer.RaftCurrentTerm() {
 		raftServer.ChangeToFollowerIfTermStale(result.Term)
 		return false
@@ -1245,7 +1251,7 @@ func (raftServer *Server) IssueAppendEntriesRpcToNode(request *pb.ClientCommandR
 
 func (raftServer *Server) ChangeToFollowerIfTermStale(theirTerm int64) {
 	if theirTerm > raftServer.RaftCurrentTerm() {
-		raftServer.log.Log(util.INFO, "Changing to follower status because term stale")
+		log.Debug().Msgf("Changing to follower status because term stale")
 		raftServer.ChangeToFollowerStatus()
 		raftServer.SetRaftCurrentTerm(theirTerm)
 	}
@@ -1295,7 +1301,7 @@ func (raftServer *Server) handleRequestVoteRpc(event *RaftRequestVoteRpcEvent) {
 				result.VoteGranted = true
 			}
 		}
-		raftServer.log.Log(util.INFO, "Grant vote to other server (%v) at term: %v ? %v", event.request.CandidateId, currentTerm, result.VoteGranted)
+		log.Debug().Msgf("Grant vote to other server (%v) at term: %v ? %v", event.request.CandidateId, currentTerm, result.VoteGranted)
 	}
 	result.ResponseStatus = uint32(codes.OK)
 	event.responseChan <- &result
@@ -1331,12 +1337,12 @@ func (raftServer *Server) handleAppendEntriesRpc(event *RaftAppendEntriesRpcEven
 	currentTerm := raftServer.RaftCurrentTerm()
 	theirTerm := event.request.Term
 	if theirTerm > currentTerm {
-		raftServer.log.Log(util.WARN, "Append Entries Rpc processing: switching to follower")
+		log.Warn().Msgf("Append Entries Rpc processing: switching to follower")
 		raftServer.ChangeToFollowerStatus()
 		raftServer.SetRaftCurrentTerm(theirTerm)
 		currentTerm = theirTerm
 	} else if theirTerm < currentTerm {
-		raftServer.log.Log(util.WARN, "Reject Append Entries Rpc because leader term stale")
+		log.Warn().Msgf("Reject Append Entries Rpc because leader term stale")
 		// We want to reply false here as leader term is stale.
 		result := pb.AppendEntriesResponse{}
 		result.Term = currentTerm
@@ -1353,9 +1359,9 @@ func (raftServer *Server) handleAppendEntriesRpc(event *RaftAppendEntriesRpcEven
 	}
 
 	// Otherwise process regular append entries rpc (receiver impl).
-	raftServer.log.Log(util.INFO, "Processing received AppendEntry rpc: %v", event.request.String())
+	log.Debug().Msgf("Processing received AppendEntry rpc: %v", event.request.String())
 	if len(event.request.Entries) > 1 {
-		raftServer.log.Log(util.WARN, "Server sent more than one log entry in append entries rpc")
+		log.Warn().Msgf("Server sent more than one log entry in append entries rpc")
 	}
 
 	result := pb.AppendEntriesResponse{}
@@ -1372,7 +1378,7 @@ func (raftServer *Server) handleAppendEntriesRpc(event *RaftAppendEntriesRpcEven
 		// Note: log index is 1-based, and so is prevLogIndex.
 		containsEntryAtPrevLogIndex := prevLogIndex <= int64(len(raftLog)) // prevLogIndex <= len(raftLog)
 		if !containsEntryAtPrevLogIndex {
-			raftServer.log.Log(util.INFO, "Rejecting append entries rpc because we don't have previous log entry at index: %v", prevLogIndex)
+			log.Debug().Msgf("Rejecting append entries rpc because we don't have previous log entry at index: %v", prevLogIndex)
 			result.Success = false
 			event.responseChan <- &result
 			return
@@ -1383,7 +1389,7 @@ func (raftServer *Server) handleAppendEntriesRpc(event *RaftAppendEntriesRpcEven
 		ourLogEntryTerm := raftLog[prevLogIndexZeroBased].LogEntry.Term
 		entryTermsMatch := ourLogEntryTerm == prevLogTerm
 		if !entryTermsMatch {
-			raftServer.log.Log(util.INFO, "Rejecting append entries rpc because log terms don't match. Ours: %v, theirs: %v", ourLogEntryTerm, prevLogTerm)
+			log.Debug().Msgf("Rejecting append entries rpc because log terms don't match. Ours: %v, theirs: %v", ourLogEntryTerm, prevLogTerm)
 			result.Success = false
 			event.responseChan <- &result
 			return
@@ -1463,7 +1469,7 @@ func (raftServer *Server) GetLastLogIndexLocked() int64 {
 
 	if lastItem != int64(len(raftLog)) {
 		// TODO: Remove this sanity check ...
-		log.Fatalf("Mismatch between stored log index value and # of entries. Last stored log index: %v num entries: %v ", lastItem, len(raftLog))
+		log.Error().Msgf("Mismatch between stored log index value and # of entries. Last stored log index: %v num entries: %v ", lastItem, len(raftLog))
 	}
 	return lastItem
 }
@@ -1489,7 +1495,7 @@ func (raftServer *Server) GetLastLogTermLocked() int64 {
 func (raftServer *Server) SetRaftCurrentTerm(term int64) {
 	currentTerm := raftServer.RaftCurrentTerm()
 	if term < currentTerm {
-		log.Fatalf("Trying to update to the  lesser term: %v current: %v", term, currentTerm)
+		log.Error().Msgf("Trying to update to the  lesser term: %v current: %v", term, currentTerm)
 	} else if term == currentTerm {
 		// Concurrent rpcs can lead to duplicated attempts to update terms.
 		return
@@ -1512,9 +1518,9 @@ func (raftServer *Server) SetRaftCurrentTerm(term int64) {
 // currently received votes
 func (raftServer *Server) RequestVotesFromOtherNodes() int64 {
 
-	raftServer.log.Log(util.INFO, "Have %v votes at start", raftServer.GetVoteCount())
+	log.Debug().Msgf("Have %v votes at start", raftServer.GetVoteCount())
 	otherNodes := raftServer.GetOtherNodes()
-	raftServer.log.Log(util.INFO, "Requesting votes from other nodes: %v", raftServer.GetOtherNodes())
+	log.Debug().Msgf("Requesting votes from other nodes: %v", raftServer.GetOtherNodes())
 
 	// Make RPCs in parallel but wait for all of them to complete.
 	var waitGroup sync.WaitGroup
@@ -1529,7 +1535,7 @@ func (raftServer *Server) RequestVotesFromOtherNodes() int64 {
 	}
 
 	waitGroup.Wait()
-	raftServer.log.Log(util.INFO, "Have %v votes at end", raftServer.GetVoteCount())
+	log.Debug().Msgf("Have %v votes at end", raftServer.GetVoteCount())
 	return raftServer.GetVoteCount()
 }
 
@@ -1547,20 +1553,20 @@ func (raftServer *Server) RequestVoteFromNode(node pb.RaftClient) {
 
 	result, err := node.RequestVote(context.Background(), &voteRequest)
 	if err != nil {
-		raftServer.log.Log(util.ERROR, "Error getting vote from node %v err: %v", node, err)
+		log.Error().Msgf("Error getting vote from node %v err: %v", node, err)
 		return
 	}
 	if result.ResponseStatus != uint32(codes.OK) {
-		raftServer.log.Log(util.ERROR, "Error with vote rpc entry to node: %v response code:%v", node, result.ResponseStatus)
+		log.Error().Msgf("Error with vote rpc entry to node: %v response code:%v", node, result.ResponseStatus)
 		return
 	}
-	raftServer.log.Log(util.INFO, "Vote response: %v", result.ResponseStatus)
+	log.Debug().Msgf("Vote response: %v", result.ResponseStatus)
 	if result.VoteGranted {
 		raftServer.IncrementVoteCount()
 	}
 	// Change to follower status if our term is stale.
 	if result.Term > raftServer.RaftCurrentTerm() {
-		raftServer.log.Log(util.INFO, "Changing to follower status because term stale")
+		log.Debug().Msgf("Changing to follower status because term stale")
 		raftServer.ChangeToFollowerStatus()
 		raftServer.SetRaftCurrentTerm(result.Term)
 	}
@@ -1595,14 +1601,14 @@ func (raftServer *Server) CandidateLoop() {
 	// i) You win election (got enough votes) -> become leader
 	// ii) Hear from another leader -> become follower
 	// iii) A period of time goes by with no winner.
-	raftServer.log.Log(util.INFO, "Starting candidate loop")
+	log.Debug().Msgf("Starting candidate loop")
 	for {
 		if raftServer.GetServerState() != Candidate {
-			raftServer.log.Log(util.INFO, "Stopping candidate loop")
+			log.Debug().Msgf("Stopping candidate loop")
 			return
 		}
 		raftServer.IncrementElectionTerm()
-		raftServer.log.Log(util.INFO, "Starting new election term: %v", raftServer.RaftCurrentTerm())
+		log.Debug().Msgf("Starting new election term: %v", raftServer.RaftCurrentTerm())
 		raftServer.VoteForSelf()
 		raftServer.RequestVotesFromOtherNodes()
 
@@ -1619,14 +1625,14 @@ func (raftServer *Server) CandidateLoop() {
 		// This gives time to see if we hear from another leader (processing heartbeats)
 		// and also reduces chance of continual split votes since each node has a random
 		// timeout.
-		raftServer.log.Log(util.INFO, "Potential split votes/not enough votes. Performing Randomized wait.")
+		log.Debug().Msgf("Potential split votes/not enough votes. Performing Randomized wait.")
 		timeoutTimer := raftServer.RandomizedElectionTimeout()
 		timeoutDone := false
 	CandidateLoop:
 		for {
 			// While processing RPCs below, we may convert from candidate status to follower
 			if raftServer.GetServerState() != Candidate {
-				raftServer.log.Log(util.INFO, "Stopping candidate loop. Exit from inner loop")
+				log.Debug().Msgf("Stopping candidate loop. Exit from inner loop")
 				return
 			}
 			if timeoutDone {
@@ -1634,7 +1640,7 @@ func (raftServer *Server) CandidateLoop() {
 			}
 			if raftServer.GetReceivedHeartbeat() {
 				// We have another leader and should convert to follower status.
-				raftServer.log.Log(util.INFO, "Heard from another leader. Converting to follower status")
+				log.Debug().Msgf("Heard from another leader. Converting to follower status")
 				raftServer.ChangeToFollowerStatus()
 				return
 			}
@@ -1653,7 +1659,7 @@ func (raftServer *Server) ReinitVolatileLeaderState() {
 	if !raftServer.IsLeader() {
 		return
 	}
-	raftServer.log.Log(util.INFO, "Reinitialized Leader state")
+	log.Debug().Msgf("Reinitialized Leader state")
 	volatileLeaderState := &raftServer.raftState.volatileLeaderState
 
 	// Reset match index to 0.
@@ -1669,7 +1675,7 @@ func (raftServer *Server) ReinitVolatileLeaderState() {
 	for i := range volatileLeaderState.nextIndex {
 		volatileLeaderState.nextIndex[i] = newVal
 	}
-	raftServer.log.Log(util.INFO, "After init: nextIndex len: %v", len(raftServer.raftState.volatileLeaderState.nextIndex))
+	log.Debug().Msgf("After init: nextIndex len: %v", len(raftServer.raftState.volatileLeaderState.nextIndex))
 }
 
 // serverIndex is index into otherNodes array.
@@ -1677,7 +1683,7 @@ func (raftServer *Server) GetNextIndexForServerAt(serverIndex int) int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	raftServer.log.Log(util.EXTRA_VERBOSE, "Get next index, serverIdex:%v nextIndex Len: %v", serverIndex, len(raftServer.raftState.volatileLeaderState.nextIndex))
+	log.Debug().Msgf("Get next index, serverIdex:%v nextIndex Len: %v", serverIndex, len(raftServer.raftState.volatileLeaderState.nextIndex))
 	return raftServer.raftState.volatileLeaderState.nextIndex[serverIndex]
 }
 
@@ -1734,15 +1740,15 @@ func (raftServer *Server) LeaderLoop() {
 	//   state machine.
 	// - See Figure 2 from Raft paper for 2 other leader requirements.
 	// - Also change to follower status if term is stale in rpc request/response
-	raftServer.log.Log(util.INFO, "Starting leader loop")
+	log.Debug().Msgf("Starting leader loop")
 	raftServer.ReinitVolatileLeaderState()
 
 	// Send heartbeats to followers in the background.
 	go func() {
-		raftServer.log.Log(util.INFO, "Starting to Send heartbeats to followers in background")
+		log.Debug().Msgf("Starting to Send heartbeats to followers in background")
 		for {
 			if raftServer.GetServerState() != Leader {
-				raftServer.log.Log(util.INFO, "No longer leader. Stopping heartbeat rpcs")
+				log.Debug().Msgf("No longer leader. Stopping heartbeat rpcs")
 				return
 			}
 			raftServer.SendHeartBeatsToFollowers()
@@ -1752,10 +1758,10 @@ func (raftServer *Server) LeaderLoop() {
 
 	// Send Append Entries rpcs to followers to replicate our logs.
 	go func() {
-		raftServer.log.Log(util.INFO, "Starting to Send append entries rpcs to followers in background")
+		log.Debug().Msgf("Starting to Send append entries rpcs to followers in background")
 		for {
 			if raftServer.GetServerState() != Leader {
-				raftServer.log.Log(util.INFO, "No longer leader. Stopping append entries replication rpcs")
+				log.Debug().Msgf("No longer leader. Stopping append entries replication rpcs")
 				return
 			}
 			raftServer.SendAppendEntriesReplicationRpcToFollowers()
@@ -1766,7 +1772,7 @@ func (raftServer *Server) LeaderLoop() {
 	for {
 		// While processing RPC, we may learn we no longer a valid leader.
 		if raftServer.GetServerState() != Leader {
-			raftServer.log.Log(util.INFO, "Stopping leader loop")
+			log.Debug().Msgf("Stopping leader loop")
 			return
 		}
 		raftServer.handleRpcEvent(<-raftServer.events)
@@ -1848,7 +1854,7 @@ func (raftServer *Server) SendAppendEntriesReplicationRpcForFollower(serverIndex
 
 	if nextIndexZeroBased < 0 || nextIndexZeroBased >= int64(len(raftServer.GetPersistentRaftLog())) {
 		// TODO: See if we can avoid hack fix:
-		raftServer.log.Log(util.WARN, "nextIndexZeroBased is out of range: %v", nextIndexZeroBased)
+		log.Warn().Msgf("nextIndexZeroBased is out of range: %v", nextIndexZeroBased)
 		return
 	}
 	logEntryToSend := raftServer.GetPersistentRaftLogEntryAt(nextIndexZeroBased)
@@ -1872,11 +1878,11 @@ func (raftServer *Server) SendAppendEntriesReplicationRpcForFollower(serverIndex
 
 	result, err := client.AppendEntries(context.Background(), &request)
 	if err != nil {
-		raftServer.log.Log(util.ERROR, "Error issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
+		log.Error().Msgf("Error issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
 		return
 	}
 	if result.ResponseStatus != uint32(codes.OK) {
-		raftServer.log.Log(util.ERROR, "Error response issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
+		log.Error().Msgf("Error response issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
 		return
 	}
 	if result.Term > currentTerm {
@@ -1925,10 +1931,10 @@ func (raftServer *Server) SendHeartBeatRpc(node pb.RaftClient) {
 
 	result, err := node.AppendEntries(context.Background(), &request)
 	if err != nil {
-		raftServer.log.Log(util.ERROR, "Error sending hearbeat to node: %v Error: %v", node, err)
+		log.Error().Msgf("Error sending hearbeat to node: %v Error: %v", node, err)
 		return
 	}
-	raftServer.log.Log(util.VERBOSE, "Heartbeat RPC Response from node: %v Response: %v", node, result.ResponseStatus)
+	log.Debug().Msgf("Heartbeat RPC Response from node: %v Response: %v", node, result.ResponseStatus)
 }
 
 // PrevLogTerm value  used in the appendentries rpc request. Should be called _after_ local local updated.
@@ -1993,7 +1999,7 @@ func (raftServer *Server) SetCommitIndex(newValue int64) {
 	defer raftServer.lock.Unlock()
 
 	if raftServer.raftState.volatileState.commitIndex > newValue {
-		log.Fatalf("Trying to set commit index backwards")
+		log.Error().Msgf("Trying to set commit index backwards")
 	}
 	raftServer.raftState.volatileState.commitIndex = newValue
 }
@@ -2010,7 +2016,7 @@ func (raftServer *Server) StartServerLoop() {
 		} else if serverState == Candidate {
 			raftServer.CandidateLoop()
 		} else {
-			log.Fatalf("Unexpected / unknown server state: %v", serverState)
+			log.Error().Msgf("Unexpected / unknown server state: %v", serverState)
 		}
 	}
 }
