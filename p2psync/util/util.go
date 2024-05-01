@@ -21,22 +21,20 @@ const (
 	DEBUG_ENABLED = false
 )
 
-// Only output to INFO level.
-var DebugLevel int = INFO
+type Logger struct {
+	Level uint
+}
 
 // Logs a message if debugging upto to given level is enabled.
 // debugLevel: One of {ERROR, WARN, INFO, VERBOSE, EXTRA_VERBOSE}
 // format: format string
 // v : optional list of formatted parameters in format string.
-func Log(debugLevel int, format string, v ...interface{}) {
+func (lg *Logger) Log(debugLevel uint, format string, v ...interface{}) {
 	if !DEBUG_ENABLED {
 		return
 	}
-	if debugLevel < 0 {
-		return
-	}
 
-	shouldLog := debugLevel <= DebugLevel
+	shouldLog := debugLevel <= lg.Level
 	if !shouldLog {
 		return
 	}

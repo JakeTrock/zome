@@ -24,6 +24,27 @@ import (
 type zomeClient struct {
 	raftServer proto.RaftClient
 	conn       *grpc.ClientConn
+	log        *util.Logger
+}
+
+func InitializeClient(logger *util.Logger, serverAddress string, cmdFile string, interactive bool) *zomeClient {
+	zClient := &zomeClient{
+		log: logger,
+	}
+	zClient.Connect(serverAddress)
+	if cmdFile != "" {
+		content, err := os.ReadFile(cmdFile)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		zClient.Batch(string(content))
+
+		if !interactive {
+			os.Exit(0)
+		}
+	}
+	return zClient
 }
 
 // Parse command to determine whether it is RO or making changes
@@ -82,7 +103,7 @@ func Sanitize(command string) error {
 	return err
 }
 
-func Format(commandString string, sanitize bool) ([]string, error) {
+func (zc *zomeClient) Format(commandString string, sanitize bool) ([]string, error) {
 	// Split commands using regex to handle queries with ; in them
 	commandSplit := regexp2.MustCompile(`(?:^|;)([^';]*(?:'[^']*'[^';]*)*)(?=;|$)`, 0)
 
@@ -98,7 +119,10 @@ func Format(commandString string, sanitize bool) ([]string, error) {
 
 	for m != nil {
 		commands = append(commands, m.String())
-		m, _ = commandSplit.FindNextMatch(m)
+		m, err = commandSplit.FindNextMatch(m)
+		if err != nil {
+			zc.log.Log(util.ERROR, "Error parsing command: %v", err)
+		}
 	}
 
 	if sanitize {
@@ -135,10 +159,10 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 		for i := 0; i <= clientAttempts; i++ {
 			result, err = zc.raftServer.ClientCommand(context.Background(), &commandRequest)
 			if result == nil {
-				fmt.Println("Trying again")
+				zc.log.Log(util.ERROR, "Error sending command to node %v err: %v", zc.raftServer, err)
 			}
 			if err != nil {
-				util.Log(util.ERROR, "Error sending command to node %v err: %v", zc.raftServer, err)
+				zc.log.Log(util.ERROR, "Error sending command to node %v err: %v", zc.raftServer, err)
 				if clientRetryOnBadCommand {
 					continue
 				}
@@ -146,7 +170,7 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 			}
 
 			if result.ResponseStatus == uint32(codes.FailedPrecondition) {
-				util.Log(util.WARN, "Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
+				zc.log.Log(util.WARN, "Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
 				zc.Connect(result.NewLeaderId)
 				continue
 			}
@@ -171,7 +195,7 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 	return buf.String(), nil
 }
 
-func (zc *zomeClient) Repl() {
+func (zc *zomeClient) HandleSignals() {
 	//handle signals appropriately; not quite like sqlite3
 	c := make(chan os.Signal, 1)
 	signal.Notify(c)
@@ -189,7 +213,10 @@ func (zc *zomeClient) Repl() {
 
 	for !exit {
 		fmt.Print("ZDB> ")
-		text, _ := reader.ReadString('\n')
+		text, err := reader.ReadString('\n')
+		if err != nil {
+			zc.log.Log(util.ERROR, "Error reading input: %v", err)
+		}
 		text = strings.TrimSpace(text)
 
 		if text == "" || text == "exit" {
@@ -204,7 +231,10 @@ func (zc *zomeClient) Repl() {
 		for text == "" || text[len(text)-1:] != ";" {
 			buf.WriteString(text)
 			fmt.Print("     ...> ")
-			text, _ = reader.ReadString('\n')
+			text, err := reader.ReadString('\n')
+			if err != nil {
+				zc.log.Log(util.ERROR, "Error reading input: %v", err)
+			}
 			text = strings.TrimSpace(text)
 
 			// imitating sqlite3 behavior
@@ -215,15 +245,15 @@ func (zc *zomeClient) Repl() {
 			}
 		}
 		buf.WriteString(text)
-		commands, err := Format(buf.String(), true)
+		commands, err := zc.Format(buf.String(), true)
 		if err != nil {
-			fmt.Println(err)
+			zc.log.Log(util.ERROR, "Error parsing command: %v", err)
 		}
 		output, err := zc.Execute(commands)
 		if err != nil {
-			fmt.Println(err)
+			zc.log.Log(util.ERROR, "Error executing command: %v", err)
 		} else if output != "" {
-			fmt.Print(output)
+			zc.log.Log(util.INFO, "Output: %v", output)
 		}
 		buf.Reset()
 	}
@@ -232,11 +262,14 @@ func (zc *zomeClient) Repl() {
 }
 
 func (zc *zomeClient) Batch(batchedCommands string) {
-	commands, _ := Format(batchedCommands, false)
-	_, err := zc.Execute(commands)
+	commands, err := zc.Format(batchedCommands, false)
 	if err != nil {
-		fmt.Println(err)
+		zc.log.Log(util.ERROR, "Error parsing command: %v", err)
+	}
+	_, err = zc.Execute(commands)
+	if err != nil {
+		zc.log.Log(util.ERROR, "Error executing command: %v", err)
 	} else {
-		fmt.Println("Success")
+		zc.log.Log(util.INFO, "Batch executed")
 	}
 }

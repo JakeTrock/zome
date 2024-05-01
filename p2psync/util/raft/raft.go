@@ -84,6 +84,8 @@ type Server struct {
 
 	// Mutex to synchronize concurrent access to data structure
 	lock sync.Mutex
+
+	log util.Logger
 }
 
 // Overall type for the messages processed by the event-loop.
@@ -166,37 +168,37 @@ type RaftConfig struct {
 }
 
 // Raft Persistent State accessors / getters / functions.
-func GetPersistentRaftLog() []*pb.DiskLogEntry {
+func (raftServer *Server) GetPersistentRaftLog() []*pb.DiskLogEntry {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 	return raftServer.raftState.persistentState.log
 }
 
-func GetPersistentRaftLogEntryAt(index int64) *pb.DiskLogEntry {
+func (raftServer *Server) GetPersistentRaftLogEntryAt(index int64) *pb.DiskLogEntry {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 	return raftServer.raftState.persistentState.log[index]
 }
 
-func GetPersistentVotedFor() string {
+func (raftServer *Server) GetPersistentVotedFor() string {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
-	return GetPersistentVotedForLocked()
+	return raftServer.GetPersistentVotedForLocked()
 }
 
 // Locked means caller already holds appropriate lock.
-func GetPersistentVotedForLocked() string {
+func (raftServer *Server) GetPersistentVotedForLocked() string {
 	return raftServer.raftState.persistentState.votedFor
 }
 
-func SetPersistentVotedFor(newValue string) {
+func (raftServer *Server) SetPersistentVotedFor(newValue string) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	SetPersistentVotedForLocked(newValue)
+	raftServer.SetPersistentVotedForLocked(newValue)
 }
 
-func SetPersistentVotedForLocked(newValue string) {
+func (raftServer *Server) SetPersistentVotedForLocked(newValue string) {
 	// Want to write to stable storage (database).
 	// First determine if we're updating or inserting value.
 
@@ -252,25 +254,25 @@ func SetPersistentVotedForLocked(newValue string) {
 	raftServer.raftState.persistentState.votedFor = newValue
 }
 
-func GetPersistentCurrentTerm() int64 {
+func (raftServer *Server) GetPersistentCurrentTerm() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	return GetPersistentCurrentTermLocked()
+	return raftServer.GetPersistentCurrentTermLocked()
 }
 
-func GetPersistentCurrentTermLocked() int64 {
+func (raftServer *Server) GetPersistentCurrentTermLocked() int64 {
 	return raftServer.raftState.persistentState.currentTerm
 }
 
-func SetPersistentCurrentTerm(newValue int64) {
+func (raftServer *Server) SetPersistentCurrentTerm(newValue int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	SetPersistentCurrentTermLocked(newValue)
+	raftServer.SetPersistentCurrentTermLocked(newValue)
 }
 
-func SetPersistentCurrentTermLocked(newValue int64) {
+func (raftServer *Server) SetPersistentCurrentTermLocked(newValue int64) {
 	// Write to durable storage (database) first.
 	// First determine if we're updating or inserting brand new value.
 
@@ -329,14 +331,14 @@ func SetPersistentCurrentTermLocked(newValue int64) {
 	raftServer.raftState.persistentState.currentTerm = newValue
 }
 
-func AddPersistentLogEntry(newValue *pb.LogEntry) {
+func (raftServer *Server) AddPersistentLogEntry(newValue *pb.LogEntry) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	AddPersistentLogEntryLocked(newValue)
+	raftServer.AddPersistentLogEntryLocked(newValue)
 }
 
-func AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
+func (raftServer *Server) AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
 	nextIndex := int64(len(raftServer.raftState.persistentState.log)) + 1
 	diskEntry := pb.DiskLogEntry{
 		LogEntry: newValue,
@@ -370,15 +372,15 @@ func AddPersistentLogEntryLocked(newValue *pb.LogEntry) {
 	raftServer.raftState.persistentState.log = append(raftServer.raftState.persistentState.log, &diskEntry)
 }
 
-func DeletePersistentLogEntryInclusive(startDeleteLogIndex int64) {
+func (raftServer *Server) DeletePersistentLogEntryInclusive(startDeleteLogIndex int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
-	DeletePersistentLogEntryInclusiveLocked(startDeleteLogIndex)
+	raftServer.DeletePersistentLogEntryInclusiveLocked(startDeleteLogIndex)
 }
 
 // Delete all log entries starting from the given log index.
 // Note: input log index is 1-based.
-func DeletePersistentLogEntryInclusiveLocked(startDeleteLogIndex int64) {
+func (raftServer *Server) DeletePersistentLogEntryInclusiveLocked(startDeleteLogIndex int64) {
 
 	// Delete first from database storage.
 	tx, err := raftServer.raftLogDb.Begin()
@@ -406,54 +408,54 @@ func DeletePersistentLogEntryInclusiveLocked(startDeleteLogIndex int64) {
 	raftServer.raftState.persistentState.log = raftServer.raftState.persistentState.log[:zeroBasedDeleteIndex]
 }
 
-func IncrementPersistentCurrentTerm() {
+func (raftServer *Server) IncrementPersistentCurrentTerm() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	IncrementPersistentCurrentTermLocked()
+	raftServer.IncrementPersistentCurrentTermLocked()
 }
 
-func IncrementPersistentCurrentTermLocked() {
-	val := GetPersistentCurrentTermLocked()
+func (raftServer *Server) IncrementPersistentCurrentTermLocked() {
+	val := raftServer.GetPersistentCurrentTermLocked()
 	newVal := val + 1
-	SetPersistentCurrentTermLocked(newVal)
+	raftServer.SetPersistentCurrentTermLocked(newVal)
 }
 
-func SetReceivedHeartbeat(newVal bool) {
+func (raftServer *Server) SetReceivedHeartbeat(newVal bool) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	SetReceivedHeartbeatLocked(newVal)
+	raftServer.SetReceivedHeartbeatLocked(newVal)
 }
 
-func SetReceivedHeartbeatLocked(newVal bool) {
+func (raftServer *Server) SetReceivedHeartbeatLocked(newVal bool) {
 	raftServer.receivedHeartbeat = newVal
 }
 
 // Raft Volatile State.
-func GetLeaderIdLocked() string {
+func (raftServer *Server) GetLeaderIdLocked() string {
 	return raftServer.raftState.volatileState.leaderId
 }
 
-func GetLeaderId() string {
+func (raftServer *Server) GetLeaderId() string {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	return GetLeaderIdLocked()
+	return raftServer.GetLeaderIdLocked()
 }
 
-func SetLeaderIdLocked(newVal string) {
+func (raftServer *Server) SetLeaderIdLocked(newVal string) {
 	raftServer.raftState.volatileState.leaderId = newVal
 }
 
-func SetLeaderId(newVal string) {
+func (raftServer *Server) SetLeaderId(newVal string) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
-	SetLeaderIdLocked(newVal)
+	raftServer.SetLeaderIdLocked(newVal)
 }
 
 // AppendEntries implementation for pb.RaftServer
-func (s *Server) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
+func (raftServer *Server) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	replyChan := make(chan *pb.AppendEntriesResponse)
 	event := Event{
 		rpc: RpcEvent{
@@ -470,7 +472,7 @@ func (s *Server) AppendEntries(ctx context.Context, in *pb.AppendEntriesRequest)
 }
 
 // RequestVote implementation for raft.RaftServer
-func (s *Server) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
+func (raftServer *Server) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
 	replyChan := make(chan *pb.RequestVoteResponse)
 	event := Event{
 		rpc: RpcEvent{
@@ -487,7 +489,7 @@ func (s *Server) RequestVote(ctx context.Context, in *pb.RequestVoteRequest) (*p
 }
 
 // Client Command implementation for raft.RaftServer
-func (s *Server) ClientCommand(ctx context.Context, in *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
+func (raftServer *Server) ClientCommand(ctx context.Context, in *pb.ClientCommandRequest) (*pb.ClientCommandResponse, error) {
 	replyChan := make(chan *pb.ClientCommandResponse)
 	event := Event{
 		rpc: RpcEvent{
@@ -514,11 +516,10 @@ type Node struct {
 // Variables
 
 // Handle to the raft server.
-var raftServer *Server
 
 // Connects to a Raft server listening at the given address and returns a client
 // to talk to this server.
-func ConnectToServer(address string) pb.RaftClient {
+func (raftServer *Server) ConnectToServer(address string) pb.RaftClient {
 	// Set up a connection to the server. Note: this is not a blocking call.
 	// Connection will be setup in the background.
 	conn, err := grpc.Dial(address, grpc.WithInsecure())
@@ -532,15 +533,14 @@ func ConnectToServer(address string) pb.RaftClient {
 
 // Starts a Raft Server listening at the specified local node.
 // otherNodes contain contact information for other nodes in the cluster.
-func StartServer(localNode Node, otherNodes []Node) *grpc.Server {
+func (raftServer *Server) StartServer(localNode Node, otherNodes []Node) *grpc.Server {
 	addressPort := ":" + localNode.Port
 	lis, err := net.Listen("tcp", addressPort)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
-	util.Log(util.DebugLevel, "Created Raft server at: %v", lis.Addr().String())
+	raftServer.log.Log(util.INFO, "Created Raft server at: %v", lis.Addr().String())
 	s := grpc.NewServer()
-	raftServer = GetInitialServer()
 
 	log.Printf("Initial Server state: %v", raftServer.serverState)
 
@@ -549,9 +549,9 @@ func StartServer(localNode Node, otherNodes []Node) *grpc.Server {
 	reflection.Register(s)
 
 	// Initialize raft cluster.
-	raftServer.otherNodes = ConnectToOtherNodes(otherNodes)
+	raftServer.otherNodes = raftServer.ConnectToOtherNodes(otherNodes)
 	raftServer.localNode = localNode
-	go InitializeRaft(addressPort, otherNodes)
+	go raftServer.InitializeRaft(addressPort, otherNodes)
 
 	// Note: the Serve call is blocking.
 	if err := s.Serve(lis); err != nil {
@@ -562,22 +562,22 @@ func StartServer(localNode Node, otherNodes []Node) *grpc.Server {
 }
 
 // Returns true iff server is the leader for the cluster.
-func IsLeader() bool {
-	return GetServerState() == Leader
+func (raftServer *Server) IsLeader() bool {
+	return raftServer.GetServerState() == Leader
 }
 
 // Returns true iff server is a follower in the cluster
-func IsFollower() bool {
-	return GetServerState() == Follower
+func (raftServer *Server) IsFollower() bool {
+	return raftServer.GetServerState() == Follower
 }
 
 // Returns true iff server is a candidate
-func IsCandidate() bool {
-	return GetServerState() == Candidate
+func (raftServer *Server) IsCandidate() bool {
+	return raftServer.GetServerState() == Candidate
 }
 
 // Returns initial server state.
-func GetInitialServer() *Server {
+func GetInitialServer(logger *util.Logger) *Server {
 	result := Server{
 		serverState: Follower,
 		raftConfig: RaftConfig{
@@ -588,16 +588,17 @@ func GetInitialServer() *Server {
 		// We initialize last heartbeat time at startup because all servers start out
 		// in follower and this allows a node to determine when it should be a candidate.
 		lastHeartbeatTimeMillis: UnixMillis(),
+		log:                     *logger,
 	}
 	return &result
 }
 
 // Returns a go channel that blocks for specified amount of time.
-func GetTimeoutWaitChannel(timeoutMs int64) *time.Timer {
+func (raftServer *Server) GetTimeoutWaitChannel(timeoutMs int64) *time.Timer {
 	return time.NewTimer(time.Millisecond * time.Duration(timeoutMs))
 }
 
-func GetConfigElectionTimeoutMillis() int64 {
+func (raftServer *Server) GetConfigElectionTimeoutMillis() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -606,9 +607,9 @@ func GetConfigElectionTimeoutMillis() int64 {
 
 // Get amount of time remaining in millis before last heartbeat received is considered
 // to have expired and thus we no longer have a leader.
-func GetRemainingHeartbeatTimeMs() int64 {
-	timeoutMs := GetConfigElectionTimeoutMillis()
-	elapsedMs := TimeSinceLastHeartBeatMillis()
+func (raftServer *Server) GetRemainingHeartbeatTimeMs() int64 {
+	timeoutMs := raftServer.GetConfigElectionTimeoutMillis()
+	elapsedMs := raftServer.TimeSinceLastHeartBeatMillis()
 	remainingMs := timeoutMs - elapsedMs
 	if remainingMs < 0 {
 		remainingMs = 0
@@ -617,9 +618,9 @@ func GetRemainingHeartbeatTimeMs() int64 {
 }
 
 // Returns a go channel that blocks for a randomized election timeout time.
-func RandomizedElectionTimeout() *time.Timer {
+func (raftServer *Server) RandomizedElectionTimeout() *time.Timer {
 	timeoutMs := PickElectionTimeOutMillis()
-	return GetTimeoutWaitChannel(timeoutMs)
+	return raftServer.GetTimeoutWaitChannel(timeoutMs)
 }
 
 // Picks a randomized time for the election timeout.
@@ -631,24 +632,24 @@ func PickElectionTimeOutMillis() int64 {
 	return baseTimeMs + randomOffsetMs
 }
 
-func NodeToAddressString(input Node) string {
+func (raftServer *Server) NodeToAddressString(input Node) string {
 	return input.Hostname + ":" + input.Port
 }
 
 // Connects to the other Raft nodes and returns array of Raft Client connections.
-func ConnectToOtherNodes(otherNodes []Node) []pb.RaftClient {
+func (raftServer *Server) ConnectToOtherNodes(otherNodes []Node) []pb.RaftClient {
 
 	result := make([]pb.RaftClient, 0)
 	for _, node := range otherNodes {
-		serverAddress := NodeToAddressString(node)
+		serverAddress := raftServer.NodeToAddressString(node)
 		log.Printf("Connecting to server: %v", serverAddress)
-		client := ConnectToServer(serverAddress)
+		client := raftServer.ConnectToServer(serverAddress)
 		result = append(result, client)
 	}
 	return result
 }
 
-func TestNodeConnections(nodeConns []pb.RaftClient) {
+func (raftServer *Server) TestNodeConnections(nodeConns []pb.RaftClient) {
 	// Try a test RPC call to other nodes.
 	log.Printf("Have client conns: %v", nodeConns)
 	for _, nodeConn := range nodeConns {
@@ -663,35 +664,35 @@ func TestNodeConnections(nodeConns []pb.RaftClient) {
 
 // Returns the Hostname/IP:Port info for the local node. This serves as the
 // identifier for the node.
-func GetNodeId(node Node) string {
-	return NodeToAddressString(node)
+func (raftServer *Server) GetNodeId(node Node) string {
+	return raftServer.NodeToAddressString(node)
 }
 
-func GetLocalNode() Node {
+func (raftServer *Server) GetLocalNode() Node {
 	// No lock on localNode as it's unchanged after server init.
 
 	return raftServer.localNode
 }
 
 // Returns identifier for this server.
-func GetLocalNodeId() string {
-	return GetNodeId(GetLocalNode())
+func (raftServer *Server) GetLocalNodeId() string {
+	return raftServer.GetNodeId(raftServer.GetLocalNode())
 }
 
 // Initializes Raft on server startup.
-func InitializeRaft(addressPort string, otherNodes []Node) {
-	InitializeDatabases()
-	StartServerLoop()
+func (raftServer *Server) InitializeRaft(addressPort string, otherNodes []Node) {
+	raftServer.InitializeDatabases()
+	raftServer.StartServerLoop()
 }
 
-func InitializeDatabases() {
-	raftDbLog, err := sql.Open("sqlite3", GetSqliteRaftLogPath())
+func (raftServer *Server) InitializeDatabases() {
+	raftDbLog, err := sql.Open("sqlite3", raftServer.GetSqliteRaftLogPath())
 	if err != nil {
-		log.Fatalf("Failed to open raft db log: %v err: %v", GetSqliteRaftLogPath(), err)
+		log.Fatalf("Failed to open raft db log: %v err: %v", raftServer.GetSqliteRaftLogPath(), err)
 	}
-	replicatedStateMachineDb, err := sql.Open("sqlite3", GetSqliteReplicatedStateMachineOpenPath())
+	replicatedStateMachineDb, err := sql.Open("sqlite3", raftServer.GetSqliteReplicatedStateMachineOpenPath())
 	if err != nil {
-		log.Fatalf("Failed to open replicated state machine database. Path: %v err: %v", GetSqliteReplicatedStateMachineOpenPath(), err)
+		log.Fatalf("Failed to open replicated state machine database. Path: %v err: %v", raftServer.GetSqliteReplicatedStateMachineOpenPath(), err)
 	}
 
 	raftDbLog.Exec("pragma database_list")
@@ -725,27 +726,24 @@ func InitializeDatabases() {
 	raftServer.sqlDb = replicatedStateMachineDb
 	raftServer.raftLogDb = raftDbLog
 
-	LoadPersistentStateIntoMemory()
+	raftServer.LoadPersistentStateIntoMemory()
 }
 
 // Loads the on disk persistent state into memory.
-func LoadPersistentStateIntoMemory() {
-	util.Log(util.INFO, "Before load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
-	LoadPersistentLog()
-	LoadPersistentKeyValues()
-	util.Log(util.INFO, "After load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
+func (raftServer *Server) LoadPersistentStateIntoMemory() {
+	raftServer.log.Log(util.INFO, "Before load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
+	raftServer.LoadPersistentLog()
+	raftServer.LoadPersistentKeyValues()
+	raftServer.log.Log(util.INFO, "After load. Raft Persistent State: %v ", raftServer.raftState.persistentState)
 }
 
-func LoadPersistentKeyValues() {
-
+func (raftServer *Server) LoadPersistentKeyValues() {
 	// Load value for the current term.
-	LoadPersistedCurrentTerm()
-
+	raftServer.LoadPersistedCurrentTerm()
 	// Load value for the voted for into memory
-	LoadPersistedVotedFor()
-
+	raftServer.LoadPersistedVotedFor()
 }
-func LoadPersistedVotedFor() {
+func (raftServer *Server) LoadPersistedVotedFor() {
 	rows, err := raftServer.raftLogDb.Query("SELECT value FROM RaftKeyValue WHERE key = 'votedFor';")
 	if err != nil {
 		log.Fatalf("Failed to read votedFor value into memory. err: %v", err)
@@ -758,12 +756,12 @@ func LoadPersistedVotedFor() {
 			log.Fatalf("Failed to read votedFor row entry. err: %v", err)
 		}
 
-		util.Log(util.INFO, "Restoring votedFor value to memory: %v", valueStr)
+		raftServer.log.Log(util.INFO, "Restoring votedFor value to memory: %v", valueStr)
 		raftServer.raftState.persistentState.votedFor = valueStr
 	}
 }
 
-func LoadPersistedCurrentTerm() {
+func (raftServer *Server) LoadPersistedCurrentTerm() {
 	rows, err := raftServer.raftLogDb.Query("SELECT value FROM RaftKeyValue WHERE key = 'currentTerm';")
 	if err != nil {
 		log.Fatalf("Failed to read current term value into memory. err: %v", err)
@@ -779,12 +777,12 @@ func LoadPersistedCurrentTerm() {
 		if err != nil {
 			log.Fatalf("Failed to parse current term as integer. value: %v err: %v", valueStr, err)
 		}
-		util.Log(util.INFO, "Restoring current term to memory: %v", restoredTerm)
+		raftServer.log.Log(util.INFO, "Restoring current term to memory: %v", restoredTerm)
 		raftServer.raftState.persistentState.currentTerm = restoredTerm
 	}
 }
 
-func LoadPersistentLog() {
+func (raftServer *Server) LoadPersistentLog() {
 	rows, err := raftServer.raftLogDb.Query("SELECT log_index, log_entry FROM RaftLog ORDER BY log_index ASC;")
 	if err != nil {
 		log.Fatalf("Failed to load raft persistent state into memory. err: %v", err)
@@ -797,7 +795,7 @@ func LoadPersistentLog() {
 		if err != nil {
 			log.Fatalf("Failed to read raft log row entry. err: %v ", err)
 		}
-		util.Log(util.INFO, "Restoring raft log to memory: %v, %v", logIndex, logEntryProtoText)
+		raftServer.log.Log(util.INFO, "Restoring raft log to memory: %v, %v", logIndex, logEntryProtoText)
 
 		var parsedLogEntry pb.LogEntry
 		err := proto.Unmarshal([]byte(logEntryProtoText), &parsedLogEntry)
@@ -815,10 +813,10 @@ func LoadPersistentLog() {
 
 // Moves the commit index forward from the current value to the given index.
 // Note: newIndex should be the log index value which is 1-based.
-func MoveCommitIndexTo(newIndex int64) {
-	util.Log(util.WARN, "MoveCommitIndexTo newIndex: %v", newIndex)
+func (raftServer *Server) MoveCommitIndexTo(newIndex int64) {
+	raftServer.log.Log(util.WARN, "MoveCommitIndexTo newIndex: %v", newIndex)
 
-	startCommitIndex := GetCommitIndex()
+	startCommitIndex := raftServer.GetCommitIndex()
 	newCommitIndex := newIndex
 
 	if newCommitIndex < startCommitIndex {
@@ -828,22 +826,21 @@ func MoveCommitIndexTo(newIndex int64) {
 	startCommitIndexZeroBased := startCommitIndex - 1
 	newCommitIndexZeroBased := newCommitIndex - 1
 
-	raftLog := GetPersistentRaftLog()
+	raftLog := raftServer.GetPersistentRaftLog()
 	commands := raftLog[startCommitIndexZeroBased+1 : newCommitIndexZeroBased+1]
 	for _, cmd := range commands {
-		if newCommitIndex > GetLastApplied() {
-			util.Log(util.INFO, "Applying log entry: %v", cmd.String())
-			ApplySqlCommand(cmd.LogEntry.Data)
-			SetLastApplied(cmd.LogIndex)
+		if newCommitIndex > raftServer.GetLastApplied() {
+			raftServer.log.Log(util.INFO, "Applying log entry: %v", cmd.String())
+			raftServer.ApplySqlCommand(cmd.LogEntry.Data)
+			raftServer.SetLastApplied(cmd.LogIndex)
 		}
 	}
-	SetLastApplied(newCommitIndex)
-
+	raftServer.SetLastApplied(newCommitIndex)
 	// Finally update the commit index.
-	SetCommitIndex(newCommitIndex)
+	raftServer.SetCommitIndex(newCommitIndex)
 }
 
-func GetLastHeartbeatTimeMillis() int64 {
+func (raftServer *Server) GetLastHeartbeatTimeMillis() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -851,20 +848,20 @@ func GetLastHeartbeatTimeMillis() int64 {
 }
 
 // Returns duration of time in milliseconds since the last successful heartbeat.
-func TimeSinceLastHeartBeatMillis() int64 {
+func (raftServer *Server) TimeSinceLastHeartBeatMillis() int64 {
 	now := UnixMillis()
-	diffMs := now - GetLastHeartbeatTimeMillis()
+	diffMs := now - raftServer.GetLastHeartbeatTimeMillis()
 	if diffMs < 0 {
-		util.Log(util.WARN, "Negative time since last heartbeat. Assuming 0.")
+		raftServer.log.Log(util.WARN, "Negative time since last heartbeat. Assuming 0.")
 		diffMs = 0
 	}
 	return diffMs
 }
 
 // Returns true if the election timeout has already passed for this node.
-func IsElectionTimeoutElapsed() bool {
-	timeoutMs := GetConfigElectionTimeoutMillis()
-	elapsedMs := TimeSinceLastHeartBeatMillis()
+func (raftServer *Server) IsElectionTimeoutElapsed() bool {
+	timeoutMs := raftServer.GetConfigElectionTimeoutMillis()
+	elapsedMs := raftServer.TimeSinceLastHeartBeatMillis()
 	if elapsedMs > timeoutMs {
 		return true
 	} else {
@@ -874,7 +871,7 @@ func IsElectionTimeoutElapsed() bool {
 
 // Resets the election time out. This restarts amount of time that has to pass
 // before an election timeout occurs. Election timeouts lead to new elections.
-func ResetElectionTimeOut() {
+func (raftServer *Server) ResetElectionTimeOut() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -882,87 +879,87 @@ func ResetElectionTimeOut() {
 }
 
 // Returns true if this node already voted for a node to be a leader.
-func AlreadyVoted() bool {
+func (raftServer *Server) AlreadyVoted() bool {
 
-	if GetPersistentVotedFor() != "" {
+	if raftServer.GetPersistentVotedFor() != "" {
 		return true
 	} else {
 		return false
 	}
 }
 
-func ChangeToCandidateStatus() {
+func (raftServer *Server) ChangeToCandidateStatus() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	raftServer.serverState = Candidate
 }
 
-func GetReceivedHeartbeat() bool {
+func (raftServer *Server) GetReceivedHeartbeat() bool {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	return raftServer.receivedHeartbeat
 }
 
-func ResetReceivedVoteCount() {
+func (raftServer *Server) ResetReceivedVoteCount() {
 	// Using atomics -- so no need to lock.
 	atomic.StoreInt64(&raftServer.receivedVoteCount, 0)
 }
 
 // Increments election term and also resets the relevant raft state.
-func IncrementElectionTerm() {
+func (raftServer *Server) IncrementElectionTerm() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	SetPersistentVotedForLocked("")
-	IncrementPersistentCurrentTermLocked()
-	ResetReceivedVoteCount()
-	SetReceivedHeartbeatLocked(false)
+	raftServer.SetPersistentVotedForLocked("")
+	raftServer.IncrementPersistentCurrentTermLocked()
+	raftServer.ResetReceivedVoteCount()
+	raftServer.SetReceivedHeartbeatLocked(false)
 }
 
-func VoteForSelf() {
+func (raftServer *Server) VoteForSelf() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	myId := GetLocalNodeId()
-	SetPersistentVotedForLocked(myId)
-	IncrementVoteCount()
+	myId := raftServer.GetLocalNodeId()
+	raftServer.SetPersistentVotedForLocked(myId)
+	raftServer.IncrementVoteCount()
 }
 
 // Votes for the given server node.
-func VoteForServer(serverToVoteFor Node) {
+func (raftServer *Server) VoteForServer(serverToVoteFor Node) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	serverId := GetNodeId(serverToVoteFor)
-	SetPersistentVotedForLocked(serverId)
+	serverId := raftServer.GetNodeId(serverToVoteFor)
+	raftServer.SetPersistentVotedForLocked(serverId)
 }
 
 // Returns the size of the raft cluster.
-func GetRaftClusterSize() int64 {
+func (raftServer *Server) GetRaftClusterSize() int64 {
 	// No lock here because otherNote is unchanged after server init.
 
 	return int64(len(raftServer.otherNodes) + 1)
 }
 
 // Returns the number of votes needed to have a quorum in the cluster.
-func GetQuorumSize() int64 {
+func (raftServer *Server) GetQuorumSize() int64 {
 	// Total := 2(N+1/2), where N is number of allowed failures.
 	// Need N+1 for a quorum.
 	// N: = (Total/2 - 0.5) = floor(Total/2)
-	numTotalNodes := GetRaftClusterSize()
+	numTotalNodes := raftServer.GetRaftClusterSize()
 	quorumSize := (numTotalNodes / 2) + 1
 	return quorumSize
 }
 
-func GetVoteCount() int64 {
+func (raftServer *Server) GetVoteCount() int64 {
 	return atomic.LoadInt64(&raftServer.receivedVoteCount)
 }
 
 // Returns true if this node has received sufficient votes to become a leader
-func HaveEnoughVotes() bool {
-	if GetVoteCount() >= GetQuorumSize() {
+func (raftServer *Server) HaveEnoughVotes() bool {
+	if raftServer.GetVoteCount() >= raftServer.GetQuorumSize() {
 		return true
 	} else {
 		return false
@@ -970,14 +967,14 @@ func HaveEnoughVotes() bool {
 }
 
 // Returns current raft term.
-func RaftCurrentTerm() int64 {
+func (raftServer *Server) RaftCurrentTerm() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	return GetPersistentCurrentTermLocked()
+	return raftServer.GetPersistentCurrentTermLocked()
 }
 
-func SetReceivedHeartBeat() {
+func (raftServer *Server) SetReceivedHeartBeat() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -985,7 +982,7 @@ func SetReceivedHeartBeat() {
 }
 
 // Instructions that followers would be processing.
-func FollowerLoop() {
+func (raftServer *Server) FollowerLoop() {
 
 	// - Check if election timeout expired.
 	// - If so, change to candidate status only.
@@ -993,61 +990,61 @@ func FollowerLoop() {
 	// as specified on figure 2 is covered because when after becoming a candidate
 	// we vote for our self and the event loop code structure for rpcs processing
 	// guarantees we won't vote for anyone else.
-	util.Log(util.INFO, "Starting  follower loop")
-	ResetElectionTimeOut()
+	raftServer.log.Log(util.INFO, "Starting  follower loop")
+	raftServer.ResetElectionTimeOut()
 	rpcCount := 0
 	for {
-		if GetServerState() != Follower {
+		if raftServer.GetServerState() != Follower {
 			return
 		}
 
-		remainingHeartbeatTimeMs := GetRemainingHeartbeatTimeMs()
-		timeoutTimer := GetTimeoutWaitChannel(remainingHeartbeatTimeMs)
+		remainingHeartbeatTimeMs := raftServer.GetRemainingHeartbeatTimeMs()
+		timeoutTimer := raftServer.GetTimeoutWaitChannel(remainingHeartbeatTimeMs)
 
 		select {
 		case event := <-raftServer.events:
-			util.Log(util.VERBOSE, "Processing rpc #%v event: %v", rpcCount, event)
-			handleRpcEvent(event)
+			raftServer.log.Log(util.VERBOSE, "Processing rpc #%v event: %v", rpcCount, event)
+			raftServer.handleRpcEvent(event)
 			rpcCount++
 		case <-timeoutTimer.C:
 			// Election timeout occured w/o heartbeat from leader.
-			ChangeToCandidateStatus()
+			raftServer.ChangeToCandidateStatus()
 			return
 		}
 	}
 }
 
-func handleRpcEvent(event Event) {
+func (raftServer *Server) handleRpcEvent(event Event) {
 	if event.rpc.requestVote != nil {
-		handleRequestVoteRpc(event.rpc.requestVote)
+		raftServer.handleRequestVoteRpc(event.rpc.requestVote)
 	} else if event.rpc.appendEntries != nil {
-		handleAppendEntriesRpc(event.rpc.appendEntries)
+		raftServer.handleAppendEntriesRpc(event.rpc.appendEntries)
 	} else if event.rpc.clientCommand != nil {
-		handleClientCommandRpc(event.rpc.clientCommand)
+		raftServer.handleClientCommandRpc(event.rpc.clientCommand)
 	} else {
 		log.Fatalf("Unexpected rpc event: %v", event)
 	}
 }
 
 // Handles client command request.
-func handleClientCommandRpc(event *RaftClientCommandRpcEvent) {
-	if !IsLeader() {
+func (raftServer *Server) handleClientCommandRpc(event *RaftClientCommandRpcEvent) {
+	if !raftServer.IsLeader() {
 		result := pb.ClientCommandResponse{}
-		util.Log(util.WARN, "Rejecting client command because not leader")
+		raftServer.log.Log(util.WARN, "Rejecting client command because not leader")
 		result.ResponseStatus = uint32(codes.FailedPrecondition)
-		result.NewLeaderId = GetLeaderId()
+		result.NewLeaderId = raftServer.GetLeaderId()
 		event.responseChan <- &result
 		return
 	}
 
 	if event.request.GetCommand() != "" {
-		handleClientMutateCommand(event)
+		raftServer.handleClientMutateCommand(event)
 	} else if event.request.GetQuery() != "" {
-		handleClientQueryCommand(event)
+		raftServer.handleClientQueryCommand(event)
 	} else {
 		// Invalid / unexpected request.
 		result := pb.ClientCommandResponse{}
-		util.Log(util.WARN, "Invalid client command (not command/query): %v", event)
+		raftServer.log.Log(util.WARN, "Invalid client command (not command/query): %v", event)
 		result.ResponseStatus = uint32(codes.InvalidArgument)
 		event.responseChan <- &result
 		return
@@ -1055,15 +1052,15 @@ func handleClientCommandRpc(event *RaftClientCommandRpcEvent) {
 
 }
 
-func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
+func (raftServer *Server) handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 	sqlQuery := event.request.Query
-	util.Log(util.INFO, "Servicing SQL query: %v", sqlQuery)
+	raftServer.log.Log(util.INFO, "Servicing SQL query: %v", sqlQuery)
 
 	result := pb.ClientCommandResponse{}
 
 	rows, err := raftServer.sqlDb.Query(sqlQuery)
 	if err != nil {
-		util.Log(util.WARN, "Sql query error: %v", err)
+		raftServer.log.Log(util.WARN, "Sql query error: %v", err)
 		result.ResponseStatus = uint32(codes.Aborted)
 		result.QueryResponse = err.Error()
 		event.responseChan <- &result
@@ -1073,7 +1070,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 
 	columns, err := rows.Columns()
 	if err != nil {
-		util.Log(util.WARN, "Sql cols query error: %v", err)
+		raftServer.log.Log(util.WARN, "Sql cols query error: %v", err)
 		result.ResponseStatus = uint32(codes.Aborted)
 		result.QueryResponse = err.Error()
 		event.responseChan <- &result
@@ -1092,7 +1089,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 	for rows.Next() {
 		err = rows.Scan(tempData...)
 		if err != nil {
-			util.Log(util.WARN, "Sql query error. Partial data return: %v", err)
+			raftServer.log.Log(util.WARN, "Sql query error. Partial data return: %v", err)
 			continue
 		}
 
@@ -1114,7 +1111,7 @@ func handleClientQueryCommand(event *RaftClientCommandRpcEvent) {
 
 }
 
-func handleClientMutateCommand(event *RaftClientCommandRpcEvent) {
+func (raftServer *Server) handleClientMutateCommand(event *RaftClientCommandRpcEvent) {
 	result := pb.ClientCommandResponse{}
 	// From Section 5.3 We need to do the following
 	// 1) Append command to our log as a new entry
@@ -1122,14 +1119,14 @@ func handleClientMutateCommand(event *RaftClientCommandRpcEvent) {
 	// 3) When Get majority successful responses, apply the new entry to our state
 	//   machine, and reply to client.
 	// Note: If some other followers slow, we apply append entries rpcs indefinitely.
-	appendCommandToLocalLog(event)
-	replicationSuccess := IssueAppendEntriesRpcToMajorityNodes(event)
+	raftServer.appendCommandToLocalLog(event)
+	replicationSuccess := raftServer.IssueAppendEntriesRpcToMajorityNodes(event)
 	if replicationSuccess {
-		util.Log(util.INFO, "Command replicated successfully")
+		raftServer.log.Log(util.INFO, "Command replicated successfully")
 		result.ResponseStatus = uint32(codes.OK)
-		ApplyCommandToStateMachine(event)
+		raftServer.ApplyCommandToStateMachine(event)
 	} else {
-		util.Log(util.ERROR, "Failed to replicate command")
+		raftServer.log.Log(util.ERROR, "Failed to replicate command")
 		result.ResponseStatus = uint32(codes.Aborted)
 	}
 	event.responseChan <- &result
@@ -1137,64 +1134,64 @@ func handleClientMutateCommand(event *RaftClientCommandRpcEvent) {
 
 // Applies the command to the local state machine. For us this, this is to apply the
 // sql command.
-func ApplyCommandToStateMachine(event *RaftClientCommandRpcEvent) {
-	util.Log(util.INFO, "Update State machine with command: %v", event.request.Command)
-	ApplySqlCommand(event.request.Command)
+func (raftServer *Server) ApplyCommandToStateMachine(event *RaftClientCommandRpcEvent) {
+	raftServer.log.Log(util.INFO, "Update State machine with command: %v", event.request.Command)
+	raftServer.ApplySqlCommand(event.request.Command)
 }
 
-func ApplySqlCommand(sqlCommand string) {
+func (raftServer *Server) ApplySqlCommand(sqlCommand string) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	ApplySqlCommandLocked(sqlCommand)
+	raftServer.ApplySqlCommandLocked(sqlCommand)
 }
 
-func ApplySqlCommandLocked(sqlCommand string) {
+func (raftServer *Server) ApplySqlCommandLocked(sqlCommand string) {
 	_, err := raftServer.sqlDb.Exec(sqlCommand)
 	if err != nil {
-		util.Log(util.WARN, "Sql application execution warning: %v", err)
+		raftServer.log.Log(util.WARN, "Sql application execution warning: %v", err)
 	}
 }
 
 // sql database which is the state machine for this node.
-func GetSqliteReplicatedStateMachineOpenPath() string {
+func (raftServer *Server) GetSqliteReplicatedStateMachineOpenPath() string {
 	// Want this to point to in-memory database. We'll replay raft log entries
 	// to bring db upto speed.
 	//const sqlOpenPath = "file::memory:?mode=memory&cache=shared"
 	//return sqlOpenPath
 
 	// uncomment to get persisted file.
-	return "./sqlite-db-" + strings.Replace(GetLocalNodeId(), ":", "-", -1) + ".db"
+	return "./sqlite-db-" + strings.Replace(raftServer.GetLocalNodeId(), ":", "-", -1) + ".db"
 }
 
 // Returns database path to use for the raft log.
-func GetSqliteRaftLogPath() string {
-	localId := GetLocalNodeId()
+func (raftServer *Server) GetSqliteRaftLogPath() string {
+	localId := raftServer.GetLocalNodeId()
 	localId = strings.Replace(localId, ":", "-", -1)
 	return "./sqlite-raft-log-" + localId + ".db"
 }
 
 // Issues append entries rpc to replicate command to majority of nodes and returns
 // true on success.
-func IssueAppendEntriesRpcToMajorityNodes(event *RaftClientCommandRpcEvent) bool {
+func (raftServer *Server) IssueAppendEntriesRpcToMajorityNodes(event *RaftClientCommandRpcEvent) bool {
 
-	otherNodes := GetOtherNodes()
+	otherNodes := raftServer.GetOtherNodes()
 
 	// Make RPCs in parallel but wait for all of them to complete.
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(len(otherNodes))
 
 	numOtherNodeSuccessRpcs := int32(0)
-	leaderLastLogIndex := GetLastLogIndex()
+	leaderLastLogIndex := raftServer.GetLastLogIndex()
 	for i, node := range otherNodes {
 		// Pass a copy of node to avoid a race condition.
 		go func(i int, node pb.RaftClient) {
 			defer waitGroup.Done()
-			success := IssueAppendEntriesRpcToNode(event.request, node)
+			success := raftServer.IssueAppendEntriesRpcToNode(event.request, node)
 			if success {
 				atomic.AddInt32(&numOtherNodeSuccessRpcs, 1)
-				SetMatchIndexForServerAt(i, leaderLastLogIndex)
-				SetNextIndexForServerAt(i, leaderLastLogIndex+1)
+				raftServer.SetMatchIndexForServerAt(i, leaderLastLogIndex)
+				raftServer.SetNextIndexForServerAt(i, leaderLastLogIndex+1)
 			}
 		}(i, node)
 	}
@@ -1203,21 +1200,21 @@ func IssueAppendEntriesRpcToMajorityNodes(event *RaftClientCommandRpcEvent) bool
 
 	// +1 to include the copy at the primary as well.
 	numReplicatedData := int64(numOtherNodeSuccessRpcs) + 1
-	return numReplicatedData >= GetQuorumSize()
+	return numReplicatedData >= raftServer.GetQuorumSize()
 }
 
 // Issues an append entries rpc to given raft client and returns true upon success
-func IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.RaftClient) bool {
-	if !IsLeader() {
+func (raftServer *Server) IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.RaftClient) bool {
+	if !raftServer.IsLeader() {
 		return false
 	}
-	currentTerm := RaftCurrentTerm()
+	currentTerm := raftServer.RaftCurrentTerm()
 	appendEntryRequest := pb.AppendEntriesRequest{}
 	appendEntryRequest.Term = currentTerm
-	appendEntryRequest.LeaderId = GetLocalNodeId()
-	appendEntryRequest.PrevLogIndex = GetLeaderPreviousLogIndex()
-	appendEntryRequest.PrevLogTerm = GetLeaderPreviousLogTerm()
-	appendEntryRequest.LeaderCommit = GetCommitIndex()
+	appendEntryRequest.LeaderId = raftServer.GetLocalNodeId()
+	appendEntryRequest.PrevLogIndex = raftServer.GetLeaderPreviousLogIndex()
+	appendEntryRequest.PrevLogTerm = raftServer.GetLeaderPreviousLogTerm()
+	appendEntryRequest.LeaderCommit = raftServer.GetCommitIndex()
 
 	newEntry := pb.LogEntry{}
 	newEntry.Term = currentTerm
@@ -1225,20 +1222,20 @@ func IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.Raf
 
 	appendEntryRequest.Entries = append(appendEntryRequest.Entries, &newEntry)
 
-	util.Log(util.INFO, "Sending appending entry RPC: %v", appendEntryRequest.String())
+	raftServer.log.Log(util.INFO, "Sending appending entry RPC: %v", appendEntryRequest.String())
 	result, err := client.AppendEntries(context.Background(), &appendEntryRequest)
 	if err != nil {
-		util.Log(util.ERROR, "Error issuing append entry to node: %v err:%v", client, err)
+		raftServer.log.Log(util.ERROR, "Error issuing append entry to node: %v err:%v", client, err)
 		return false
 	}
 	if result.ResponseStatus != uint32(codes.OK) {
-		util.Log(util.ERROR, "Error issuing append entry to node: %v response code:%v", client, result.ResponseStatus)
+		raftServer.log.Log(util.ERROR, "Error issuing append entry to node: %v response code:%v", client, result.ResponseStatus)
 		return false
 	}
 
-	util.Log(util.INFO, "AppendEntry Response from node: %v response: %v", client, result.String())
-	if result.Term > RaftCurrentTerm() {
-		ChangeToFollowerIfTermStale(result.Term)
+	raftServer.log.Log(util.INFO, "AppendEntry Response from node: %v response: %v", client, result.String())
+	if result.Term > raftServer.RaftCurrentTerm() {
+		raftServer.ChangeToFollowerIfTermStale(result.Term)
 		return false
 	}
 
@@ -1246,81 +1243,81 @@ func IssueAppendEntriesRpcToNode(request *pb.ClientCommandRequest, client pb.Raf
 	return result.Success
 }
 
-func ChangeToFollowerIfTermStale(theirTerm int64) {
-	if theirTerm > RaftCurrentTerm() {
-		util.Log(util.INFO, "Changing to follower status because term stale")
-		ChangeToFollowerStatus()
-		SetRaftCurrentTerm(theirTerm)
+func (raftServer *Server) ChangeToFollowerIfTermStale(theirTerm int64) {
+	if theirTerm > raftServer.RaftCurrentTerm() {
+		raftServer.log.Log(util.INFO, "Changing to follower status because term stale")
+		raftServer.ChangeToFollowerStatus()
+		raftServer.SetRaftCurrentTerm(theirTerm)
 	}
 }
 
-func appendCommandToLocalLog(event *RaftClientCommandRpcEvent) {
-	currentTerm := RaftCurrentTerm()
+func (raftServer *Server) appendCommandToLocalLog(event *RaftClientCommandRpcEvent) {
+	currentTerm := raftServer.RaftCurrentTerm()
 	newLogEntry := pb.LogEntry{
 		Data: event.request.Command,
 		Term: currentTerm,
 	}
-	AddPersistentLogEntry(&newLogEntry)
+	raftServer.AddPersistentLogEntry(&newLogEntry)
 }
 
 // Handles request vote rpc.
-func handleRequestVoteRpc(event *RaftRequestVoteRpcEvent) {
+func (raftServer *Server) handleRequestVoteRpc(event *RaftRequestVoteRpcEvent) {
 	result := pb.RequestVoteResponse{}
-	currentTerm := RaftCurrentTerm()
+	currentTerm := raftServer.RaftCurrentTerm()
 
 	theirTerm := event.request.Term
 	if theirTerm > currentTerm {
-		ChangeToFollowerStatus()
-		SetRaftCurrentTerm(theirTerm)
+		raftServer.ChangeToFollowerStatus()
+		raftServer.SetRaftCurrentTerm(theirTerm)
 		currentTerm = theirTerm
 	}
 
 	result.Term = currentTerm
 	if event.request.Term < currentTerm {
 		result.VoteGranted = false
-	} else if AlreadyVoted() {
+	} else if raftServer.AlreadyVoted() {
 		result.VoteGranted = false
 	} else {
 		// Only grant vote if candidate log at least uptodate
 		// as receivers (Section 5.2; 5.4)
-		if GetLastLogTerm() > event.request.LastLogTerm {
+		if raftServer.GetLastLogTerm() > event.request.LastLogTerm {
 			// Node is more up to date, deny vote.
 			result.VoteGranted = false
-		} else if GetLastLogTerm() < event.request.LastLogTerm {
+		} else if raftServer.GetLastLogTerm() < event.request.LastLogTerm {
 			// Their term is more current, grant vote
 			result.VoteGranted = true
 		} else {
 			// Terms match. Let's check log index to see who has longer log history.
-			if GetLastLogIndex() > event.request.LastLogIndex {
+			if raftServer.GetLastLogIndex() > event.request.LastLogIndex {
 				// Node is more current, deny vote
 				result.VoteGranted = false
 			} else {
 				result.VoteGranted = true
 			}
 		}
-		util.Log(util.INFO, "Grant vote to other server (%v) at term: %v ? %v", event.request.CandidateId, currentTerm, result.VoteGranted)
+		raftServer.log.Log(util.INFO, "Grant vote to other server (%v) at term: %v ? %v", event.request.CandidateId, currentTerm, result.VoteGranted)
 	}
 	result.ResponseStatus = uint32(codes.OK)
 	event.responseChan <- &result
 }
 
 // Heartbeat sent by leader. Special case of Append Entries with no log entries.
-func handleHeartBeatRpc(event *RaftAppendEntriesRpcEvent) {
+func (raftServer *Server) handleHeartBeatRpc(event *RaftAppendEntriesRpcEvent) {
 	result := pb.AppendEntriesResponse{}
-	currentTerm := RaftCurrentTerm()
+	currentTerm := raftServer.RaftCurrentTerm()
 	result.Term = currentTerm
 	// Main thing is to reset the election timeout.
 	result.ResponseStatus = uint32(codes.OK)
-	ResetElectionTimeOut()
-	SetReceivedHeartBeat()
+	raftServer.ResetElectionTimeOut()
+	raftServer.SetReceivedHeartBeat()
 
 	// And update our leader id if necessary.
-	SetLeaderId(event.request.LeaderId)
+	raftServer.SetLeaderId(event.request.LeaderId)
 
 	// Also advance commit pointer as appropriate.
-	if event.request.LeaderCommit > GetCommitIndex() {
-		newCommitIndex := min(event.request.LeaderCommit, int64(len(GetPersistentRaftLog())))
-		MoveCommitIndexTo(newCommitIndex)
+	if event.request.LeaderCommit > raftServer.GetCommitIndex() {
+		newCommitIndex := min(event.request.LeaderCommit, int64(len(raftServer.GetPersistentRaftLog())))
+		raftServer.MoveCommitIndexTo(newCommitIndex)
 	}
 
 	result.Success = true
@@ -1328,18 +1325,18 @@ func handleHeartBeatRpc(event *RaftAppendEntriesRpcEvent) {
 }
 
 // Handles append entries rpc.
-func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
+func (raftServer *Server) handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 
 	// Convert to follower status if term in rpc is newer than ours.
-	currentTerm := RaftCurrentTerm()
+	currentTerm := raftServer.RaftCurrentTerm()
 	theirTerm := event.request.Term
 	if theirTerm > currentTerm {
-		util.Log(util.WARN, "Append Entries Rpc processing: switching to follower")
-		ChangeToFollowerStatus()
-		SetRaftCurrentTerm(theirTerm)
+		raftServer.log.Log(util.WARN, "Append Entries Rpc processing: switching to follower")
+		raftServer.ChangeToFollowerStatus()
+		raftServer.SetRaftCurrentTerm(theirTerm)
 		currentTerm = theirTerm
 	} else if theirTerm < currentTerm {
-		util.Log(util.WARN, "Reject Append Entries Rpc because leader term stale")
+		raftServer.log.Log(util.WARN, "Reject Append Entries Rpc because leader term stale")
 		// We want to reply false here as leader term is stale.
 		result := pb.AppendEntriesResponse{}
 		result.Term = currentTerm
@@ -1351,14 +1348,14 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 
 	isHeartBeatRpc := len(event.request.Entries) == 0
 	if isHeartBeatRpc {
-		handleHeartBeatRpc(event)
+		raftServer.handleHeartBeatRpc(event)
 		return
 	}
 
 	// Otherwise process regular append entries rpc (receiver impl).
-	util.Log(util.INFO, "Processing received AppendEntry rpc: %v", event.request.String())
+	raftServer.log.Log(util.INFO, "Processing received AppendEntry rpc: %v", event.request.String())
 	if len(event.request.Entries) > 1 {
-		util.Log(util.WARN, "Server sent more than one log entry in append entries rpc")
+		raftServer.log.Log(util.WARN, "Server sent more than one log entry in append entries rpc")
 	}
 
 	result := pb.AppendEntriesResponse{}
@@ -1370,12 +1367,12 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 	prevLogIndex := event.request.PrevLogIndex
 	prevLogTerm := event.request.PrevLogTerm
 
-	raftLog := GetPersistentRaftLog()
+	raftLog := raftServer.GetPersistentRaftLog()
 	if prevLogIndex > 0 {
 		// Note: log index is 1-based, and so is prevLogIndex.
 		containsEntryAtPrevLogIndex := prevLogIndex <= int64(len(raftLog)) // prevLogIndex <= len(raftLog)
 		if !containsEntryAtPrevLogIndex {
-			util.Log(util.INFO, "Rejecting append entries rpc because we don't have previous log entry at index: %v", prevLogIndex)
+			raftServer.log.Log(util.INFO, "Rejecting append entries rpc because we don't have previous log entry at index: %v", prevLogIndex)
 			result.Success = false
 			event.responseChan <- &result
 			return
@@ -1386,7 +1383,7 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		ourLogEntryTerm := raftLog[prevLogIndexZeroBased].LogEntry.Term
 		entryTermsMatch := ourLogEntryTerm == prevLogTerm
 		if !entryTermsMatch {
-			util.Log(util.INFO, "Rejecting append entries rpc because log terms don't match. Ours: %v, theirs: %v", ourLogEntryTerm, prevLogTerm)
+			raftServer.log.Log(util.INFO, "Rejecting append entries rpc because log terms don't match. Ours: %v, theirs: %v", ourLogEntryTerm, prevLogTerm)
 			result.Success = false
 			event.responseChan <- &result
 			return
@@ -1406,8 +1403,8 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		if haveConflict {
 			// We must make our logs match the leader. Thus, we need to delete
 			// all our entries starting from the new entry position.
-			DeletePersistentLogEntryInclusive(newLogIndex)
-			AddPersistentLogEntry(newEntry)
+			raftServer.DeletePersistentLogEntryInclusive(newLogIndex)
+			raftServer.AddPersistentLogEntry(newEntry)
 			result.Success = true
 		} else {
 			// We do not need to add any new entries to our log, because existing
@@ -1416,22 +1413,22 @@ func handleAppendEntriesRpc(event *RaftAppendEntriesRpcEvent) {
 		}
 	} else {
 		// We need to insert new entry into the log.
-		AddPersistentLogEntry(newEntry)
+		raftServer.AddPersistentLogEntry(newEntry)
 		result.Success = true
 
 	}
 
 	// Last thing we do is advance our commit pointer.
 
-	if event.request.LeaderCommit > GetCommitIndex() {
+	if event.request.LeaderCommit > raftServer.GetCommitIndex() {
 		newCommitIndex := min(event.request.LeaderCommit, newLogIndex)
-		MoveCommitIndexTo(newCommitIndex)
+		raftServer.MoveCommitIndexTo(newCommitIndex)
 	}
 
 	event.responseChan <- &result
 }
 
-func min(a, b int64) int64 {
+func (raftServer *Server) min(a, b int64) int64 {
 	if a < b {
 		return a
 	} else {
@@ -1440,24 +1437,24 @@ func min(a, b int64) int64 {
 }
 
 // Returns other nodes client connections
-func GetOtherNodes() []pb.RaftClient {
+func (raftServer *Server) GetOtherNodes() []pb.RaftClient {
 	return raftServer.otherNodes
 }
 
 // Increments the number of received votes.
-func IncrementVoteCount() {
+func (raftServer *Server) IncrementVoteCount() {
 	atomic.AddInt64(&raftServer.receivedVoteCount, 1)
 }
 
 // Returns the index of the last entry in the raft log. Index is 1-based.
-func GetLastLogIndex() int64 {
+func (raftServer *Server) GetLastLogIndex() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	return GetLastLogIndexLocked()
+	return raftServer.GetLastLogIndexLocked()
 }
 
-func GetLastLogIndexLocked() int64 {
+func (raftServer *Server) GetLastLogIndexLocked() int64 {
 	raftLog := raftServer.raftState.persistentState.log
 	if len(raftLog) <= 0 {
 		return 0
@@ -1472,14 +1469,14 @@ func GetLastLogIndexLocked() int64 {
 }
 
 // Returns the term for the last entry in the raft log.
-func GetLastLogTerm() int64 {
+func (raftServer *Server) GetLastLogTerm() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	return GetLastLogTermLocked()
+	return raftServer.GetLastLogTermLocked()
 }
 
-func GetLastLogTermLocked() int64 {
+func (raftServer *Server) GetLastLogTermLocked() int64 {
 	raftLog := raftServer.raftState.persistentState.log
 	if len(raftLog) <= 0 {
 		return 0
@@ -1489,8 +1486,8 @@ func GetLastLogTermLocked() int64 {
 }
 
 // Updates raft current term to a new one.
-func SetRaftCurrentTerm(term int64) {
-	currentTerm := RaftCurrentTerm()
+func (raftServer *Server) SetRaftCurrentTerm(term int64) {
+	currentTerm := raftServer.RaftCurrentTerm()
 	if term < currentTerm {
 		log.Fatalf("Trying to update to the  lesser term: %v current: %v", term, currentTerm)
 	} else if term == currentTerm {
@@ -1503,21 +1500,21 @@ func SetRaftCurrentTerm(term int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	SetPersistentCurrentTermLocked(term)
+	raftServer.SetPersistentCurrentTermLocked(term)
 
 	// Since it's a new term reset who voted for and if heard heartbeat from leader as candidate.
-	SetPersistentVotedForLocked("")
-	ResetReceivedVoteCount()
-	SetReceivedHeartbeatLocked(false)
+	raftServer.SetPersistentVotedForLocked("")
+	raftServer.ResetReceivedVoteCount()
+	raftServer.SetReceivedHeartbeatLocked(false)
 }
 
 // Requests votes from all the other nodes to make us a leader. Returns number of
 // currently received votes
-func RequestVotesFromOtherNodes() int64 {
+func (raftServer *Server) RequestVotesFromOtherNodes() int64 {
 
-	util.Log(util.INFO, "Have %v votes at start", GetVoteCount())
-	otherNodes := GetOtherNodes()
-	util.Log(util.INFO, "Requesting votes from other nodes: %v", GetOtherNodes())
+	raftServer.log.Log(util.INFO, "Have %v votes at start", raftServer.GetVoteCount())
+	otherNodes := raftServer.GetOtherNodes()
+	raftServer.log.Log(util.INFO, "Requesting votes from other nodes: %v", raftServer.GetOtherNodes())
 
 	// Make RPCs in parallel but wait for all of them to complete.
 	var waitGroup sync.WaitGroup
@@ -1527,50 +1524,50 @@ func RequestVotesFromOtherNodes() int64 {
 		// Pass a copy of node to avoid a race condition.
 		go func(node pb.RaftClient) {
 			defer waitGroup.Done()
-			RequestVoteFromNode(node)
+			raftServer.RequestVoteFromNode(node)
 		}(node)
 	}
 
 	waitGroup.Wait()
-	util.Log(util.INFO, "Have %v votes at end", GetVoteCount())
-	return GetVoteCount()
+	raftServer.log.Log(util.INFO, "Have %v votes at end", raftServer.GetVoteCount())
+	return raftServer.GetVoteCount()
 }
 
 // Requests a vote from the given node.
-func RequestVoteFromNode(node pb.RaftClient) {
-	if GetServerState() != Candidate {
+func (raftServer *Server) RequestVoteFromNode(node pb.RaftClient) {
+	if raftServer.GetServerState() != Candidate {
 		return
 	}
 
 	voteRequest := pb.RequestVoteRequest{}
-	voteRequest.Term = RaftCurrentTerm()
-	voteRequest.CandidateId = GetLocalNodeId()
-	voteRequest.LastLogIndex = GetLastLogIndex()
-	voteRequest.LastLogTerm = GetLastLogTerm()
+	voteRequest.Term = raftServer.RaftCurrentTerm()
+	voteRequest.CandidateId = raftServer.GetLocalNodeId()
+	voteRequest.LastLogIndex = raftServer.GetLastLogIndex()
+	voteRequest.LastLogTerm = raftServer.GetLastLogTerm()
 
 	result, err := node.RequestVote(context.Background(), &voteRequest)
 	if err != nil {
-		util.Log(util.ERROR, "Error getting vote from node %v err: %v", node, err)
+		raftServer.log.Log(util.ERROR, "Error getting vote from node %v err: %v", node, err)
 		return
 	}
 	if result.ResponseStatus != uint32(codes.OK) {
-		util.Log(util.ERROR, "Error with vote rpc entry to node: %v response code:%v", node, result.ResponseStatus)
+		raftServer.log.Log(util.ERROR, "Error with vote rpc entry to node: %v response code:%v", node, result.ResponseStatus)
 		return
 	}
-	util.Log(util.INFO, "Vote response: %v", result.ResponseStatus)
+	raftServer.log.Log(util.INFO, "Vote response: %v", result.ResponseStatus)
 	if result.VoteGranted {
-		IncrementVoteCount()
+		raftServer.IncrementVoteCount()
 	}
 	// Change to follower status if our term is stale.
-	if result.Term > RaftCurrentTerm() {
-		util.Log(util.INFO, "Changing to follower status because term stale")
-		ChangeToFollowerStatus()
-		SetRaftCurrentTerm(result.Term)
+	if result.Term > raftServer.RaftCurrentTerm() {
+		raftServer.log.Log(util.INFO, "Changing to follower status because term stale")
+		raftServer.ChangeToFollowerStatus()
+		raftServer.SetRaftCurrentTerm(result.Term)
 	}
 }
 
 // Changes to Follower status.
-func ChangeToFollowerStatus() {
+func (raftServer *Server) ChangeToFollowerStatus() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -1578,7 +1575,7 @@ func ChangeToFollowerStatus() {
 }
 
 // Converts the node to a leader status from a candidate
-func ChangeToLeaderStatus() {
+func (raftServer *Server) ChangeToLeaderStatus() {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -1587,7 +1584,7 @@ func ChangeToLeaderStatus() {
 }
 
 // Instructions that candidate would be processing.
-func CandidateLoop() {
+func (raftServer *Server) CandidateLoop() {
 	// High level notes overview:
 	// Start an election process
 	// - Increment current election term
@@ -1598,19 +1595,19 @@ func CandidateLoop() {
 	// i) You win election (got enough votes) -> become leader
 	// ii) Hear from another leader -> become follower
 	// iii) A period of time goes by with no winner.
-	util.Log(util.INFO, "Starting candidate loop")
+	raftServer.log.Log(util.INFO, "Starting candidate loop")
 	for {
-		if GetServerState() != Candidate {
-			util.Log(util.INFO, "Stopping candidate loop")
+		if raftServer.GetServerState() != Candidate {
+			raftServer.log.Log(util.INFO, "Stopping candidate loop")
 			return
 		}
-		IncrementElectionTerm()
-		util.Log(util.INFO, "Starting new election term: %v", RaftCurrentTerm())
-		VoteForSelf()
-		RequestVotesFromOtherNodes()
+		raftServer.IncrementElectionTerm()
+		raftServer.log.Log(util.INFO, "Starting new election term: %v", raftServer.RaftCurrentTerm())
+		raftServer.VoteForSelf()
+		raftServer.RequestVotesFromOtherNodes()
 
-		if HaveEnoughVotes() {
-			ChangeToLeaderStatus()
+		if raftServer.HaveEnoughVotes() {
+			raftServer.ChangeToLeaderStatus()
 			return
 		}
 
@@ -1622,28 +1619,28 @@ func CandidateLoop() {
 		// This gives time to see if we hear from another leader (processing heartbeats)
 		// and also reduces chance of continual split votes since each node has a random
 		// timeout.
-		util.Log(util.INFO, "Potential split votes/not enough votes. Performing Randomized wait.")
-		timeoutTimer := RandomizedElectionTimeout()
+		raftServer.log.Log(util.INFO, "Potential split votes/not enough votes. Performing Randomized wait.")
+		timeoutTimer := raftServer.RandomizedElectionTimeout()
 		timeoutDone := false
 	CandidateLoop:
 		for {
 			// While processing RPCs below, we may convert from candidate status to follower
-			if GetServerState() != Candidate {
-				util.Log(util.INFO, "Stopping candidate loop. Exit from inner loop")
+			if raftServer.GetServerState() != Candidate {
+				raftServer.log.Log(util.INFO, "Stopping candidate loop. Exit from inner loop")
 				return
 			}
 			if timeoutDone {
 				break
 			}
-			if GetReceivedHeartbeat() {
+			if raftServer.GetReceivedHeartbeat() {
 				// We have another leader and should convert to follower status.
-				util.Log(util.INFO, "Heard from another leader. Converting to follower status")
-				ChangeToFollowerStatus()
+				raftServer.log.Log(util.INFO, "Heard from another leader. Converting to follower status")
+				raftServer.ChangeToFollowerStatus()
 				return
 			}
 			select {
 			case event := <-raftServer.events:
-				handleRpcEvent(event)
+				raftServer.handleRpcEvent(event)
 			case <-timeoutTimer.C:
 				break CandidateLoop
 			}
@@ -1652,67 +1649,67 @@ func CandidateLoop() {
 }
 
 // Reinitializes volatile leader state
-func ReinitVolatileLeaderState() {
-	if !IsLeader() {
+func (raftServer *Server) ReinitVolatileLeaderState() {
+	if !raftServer.IsLeader() {
 		return
 	}
-	util.Log(util.INFO, "Reinitialized Leader state")
+	raftServer.log.Log(util.INFO, "Reinitialized Leader state")
 	volatileLeaderState := &raftServer.raftState.volatileLeaderState
 
 	// Reset match index to 0.
-	numOtherNodes := len(GetOtherNodes())
+	numOtherNodes := len(raftServer.GetOtherNodes())
 	volatileLeaderState.matchIndex = make([]int64, numOtherNodes)
 	for i := range volatileLeaderState.matchIndex {
 		volatileLeaderState.matchIndex[i] = 0
 	}
 
 	// Reset next index to leader last log index + 1.
-	newVal := GetLastLogIndex() + 1
+	newVal := raftServer.GetLastLogIndex() + 1
 	volatileLeaderState.nextIndex = make([]int64, numOtherNodes)
 	for i := range volatileLeaderState.nextIndex {
 		volatileLeaderState.nextIndex[i] = newVal
 	}
-	util.Log(util.INFO, "After init: nextIndex len: %v", len(raftServer.raftState.volatileLeaderState.nextIndex))
+	raftServer.log.Log(util.INFO, "After init: nextIndex len: %v", len(raftServer.raftState.volatileLeaderState.nextIndex))
 }
 
 // serverIndex is index into otherNodes array.
-func GetNextIndexForServerAt(serverIndex int) int64 {
+func (raftServer *Server) GetNextIndexForServerAt(serverIndex int) int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
-	util.Log(util.EXTRA_VERBOSE, "Get next index, serverIdex:%v nextIndex Len: %v", serverIndex, len(raftServer.raftState.volatileLeaderState.nextIndex))
+	raftServer.log.Log(util.EXTRA_VERBOSE, "Get next index, serverIdex:%v nextIndex Len: %v", serverIndex, len(raftServer.raftState.volatileLeaderState.nextIndex))
 	return raftServer.raftState.volatileLeaderState.nextIndex[serverIndex]
 }
 
-func SetNextIndexForServerAt(serverIndex int, newValue int64) {
+func (raftServer *Server) SetNextIndexForServerAt(serverIndex int, newValue int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	raftServer.raftState.volatileLeaderState.nextIndex[serverIndex] = newValue
 }
 
-func DecrementNextIndexForServerAt(serverIndex int) {
+func (raftServer *Server) DecrementNextIndexForServerAt(serverIndex int) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	raftServer.raftState.volatileLeaderState.nextIndex[serverIndex] -= 1
 }
 
-func GetMatchIndexForServerAt(serverIndex int) int64 {
+func (raftServer *Server) GetMatchIndexForServerAt(serverIndex int) int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	return raftServer.raftState.volatileLeaderState.matchIndex[serverIndex]
 }
 
-func SetMatchIndexForServerAt(serverIndex int, newValue int64) {
+func (raftServer *Server) SetMatchIndexForServerAt(serverIndex int, newValue int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	raftServer.raftState.volatileLeaderState.matchIndex[serverIndex] = newValue
 }
 
-func GetServerState() ServerState {
+func (raftServer *Server) GetServerState() ServerState {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -1720,13 +1717,13 @@ func GetServerState() ServerState {
 }
 
 // Returns the configured interval at which leader sends heartbeat rpcs.
-func GetHeartbeatIntervalMillis() int64 {
+func (raftServer *Server) GetHeartbeatIntervalMillis() int64 {
 	return raftServer.raftConfig.heartBeatIntervalMillis
 
 }
 
 // Instructions that leaders would be performing.
-func LeaderLoop() {
+func (raftServer *Server) LeaderLoop() {
 	// TODO: implement.
 	// Overview:
 	// - Reinitialize volatile leader state upon first leader succession.
@@ -1737,50 +1734,50 @@ func LeaderLoop() {
 	//   state machine.
 	// - See Figure 2 from Raft paper for 2 other leader requirements.
 	// - Also change to follower status if term is stale in rpc request/response
-	util.Log(util.INFO, "Starting leader loop")
-	ReinitVolatileLeaderState()
+	raftServer.log.Log(util.INFO, "Starting leader loop")
+	raftServer.ReinitVolatileLeaderState()
 
 	// Send heartbeats to followers in the background.
 	go func() {
-		util.Log(util.INFO, "Starting to Send heartbeats to followers in background")
+		raftServer.log.Log(util.INFO, "Starting to Send heartbeats to followers in background")
 		for {
-			if GetServerState() != Leader {
-				util.Log(util.INFO, "No longer leader. Stopping heartbeat rpcs")
+			if raftServer.GetServerState() != Leader {
+				raftServer.log.Log(util.INFO, "No longer leader. Stopping heartbeat rpcs")
 				return
 			}
-			SendHeartBeatsToFollowers()
-			time.Sleep(time.Duration(GetHeartbeatIntervalMillis()) * time.Millisecond)
+			raftServer.SendHeartBeatsToFollowers()
+			time.Sleep(time.Duration(raftServer.GetHeartbeatIntervalMillis()) * time.Millisecond)
 		}
 	}()
 
 	// Send Append Entries rpcs to followers to replicate our logs.
 	go func() {
-		util.Log(util.INFO, "Starting to Send append entries rpcs to followers in background")
+		raftServer.log.Log(util.INFO, "Starting to Send append entries rpcs to followers in background")
 		for {
-			if GetServerState() != Leader {
-				util.Log(util.INFO, "No longer leader. Stopping append entries replication rpcs")
+			if raftServer.GetServerState() != Leader {
+				raftServer.log.Log(util.INFO, "No longer leader. Stopping append entries replication rpcs")
 				return
 			}
-			SendAppendEntriesReplicationRpcToFollowers()
-			time.Sleep(time.Duration(GetHeartbeatIntervalMillis()) * time.Millisecond)
+			raftServer.SendAppendEntriesReplicationRpcToFollowers()
+			time.Sleep(time.Duration(raftServer.GetHeartbeatIntervalMillis()) * time.Millisecond)
 		}
 	}()
 
 	for {
 		// While processing RPC, we may learn we no longer a valid leader.
-		if GetServerState() != Leader {
-			util.Log(util.INFO, "Stopping leader loop")
+		if raftServer.GetServerState() != Leader {
+			raftServer.log.Log(util.INFO, "Stopping leader loop")
 			return
 		}
-		handleRpcEvent(<-raftServer.events)
+		raftServer.handleRpcEvent(<-raftServer.events)
 	}
 }
 
 // Sends any append entries replication rpc needed to all followers to get their
 // state to match ours.
-func SendAppendEntriesReplicationRpcToFollowers() {
+func (raftServer *Server) SendAppendEntriesReplicationRpcToFollowers() {
 	// TODO: implement
-	otherNodes := GetOtherNodes()
+	otherNodes := raftServer.GetOtherNodes()
 
 	// Make RPCs in parallel but wait for all of them to complete.
 	var waitGroup sync.WaitGroup
@@ -1790,31 +1787,30 @@ func SendAppendEntriesReplicationRpcToFollowers() {
 		// Pass a copy of node to avoid a race condition.
 		go func(i int, node pb.RaftClient) {
 			defer waitGroup.Done()
-			SendAppendEntriesReplicationRpcForFollower(i, node)
-
+			raftServer.SendAppendEntriesReplicationRpcForFollower(i, node)
 		}(i, node)
 	}
 
 	waitGroup.Wait()
 
 	// After replicating, increment the commit index if its possible.
-	IncrementCommitIndexIfPossible()
+	raftServer.IncrementCommitIndexIfPossible()
 }
 
-func IncrementCommitIndexIfPossible() {
-	proposedCommitIndex := GetCommitIndex() + 1
-	if proposedCommitIndex > int64(len(GetPersistentRaftLog())) {
+func (raftServer *Server) IncrementCommitIndexIfPossible() {
+	proposedCommitIndex := raftServer.GetCommitIndex() + 1
+	if proposedCommitIndex > int64(len(raftServer.GetPersistentRaftLog())) {
 		return
 	}
 
 	numNodesWithMatchingLogs := 0
-	numNodes := len(GetOtherNodes())
+	numNodes := len(raftServer.GetOtherNodes())
 	for i := 0; i < numNodes; i++ {
-		if GetMatchIndexForServerAt(i) >= proposedCommitIndex {
+		if raftServer.GetMatchIndexForServerAt(i) >= proposedCommitIndex {
 			numNodesWithMatchingLogs++
 		}
 	}
-	otherNodesMajority := GetQuorumSize() - 1 // -1 because we don't count primary.
+	otherNodesMajority := raftServer.GetQuorumSize() - 1 // -1 because we don't count primary.
 	majorityMet := int64(numNodesWithMatchingLogs) >= otherNodesMajority
 	if !majorityMet {
 		return
@@ -1822,22 +1818,22 @@ func IncrementCommitIndexIfPossible() {
 
 	// Check that for proposed commit index, term is current.
 	proposedCommitIndexZeroBased := proposedCommitIndex - 1
-	proposedCommitLogEntry := GetPersistentRaftLogEntryAt(proposedCommitIndexZeroBased)
-	currentTerm := RaftCurrentTerm()
+	proposedCommitLogEntry := raftServer.GetPersistentRaftLogEntryAt(proposedCommitIndexZeroBased)
+	currentTerm := raftServer.RaftCurrentTerm()
 	if proposedCommitLogEntry.LogEntry.Term == currentTerm {
-		SetCommitIndex(proposedCommitIndex)
+		raftServer.SetCommitIndex(proposedCommitIndex)
 	}
 
 }
 
 // If needed, sends append entries rpc to given "client" follower to make their logs match ours.
-func SendAppendEntriesReplicationRpcForFollower(serverIndex int, client pb.RaftClient) {
-	if !IsLeader() {
+func (raftServer *Server) SendAppendEntriesReplicationRpcForFollower(serverIndex int, client pb.RaftClient) {
+	if !raftServer.IsLeader() {
 		return
 	}
 
-	lastLogIndex := GetLastLogIndex()
-	nextIndex := GetNextIndexForServerAt(serverIndex)
+	lastLogIndex := raftServer.GetLastLogIndex()
+	nextIndex := raftServer.GetNextIndexForServerAt(serverIndex)
 
 	if lastLogIndex < nextIndex {
 		// Nothing to do for this follower - it's already up to date.
@@ -1850,14 +1846,14 @@ func SendAppendEntriesReplicationRpcForFollower(serverIndex int, client pb.RaftC
 	request := pb.AppendEntriesRequest{}
 	nextIndexZeroBased := nextIndex - 1
 
-	if nextIndexZeroBased < 0 || nextIndexZeroBased >= int64(len(GetPersistentRaftLog())) {
+	if nextIndexZeroBased < 0 || nextIndexZeroBased >= int64(len(raftServer.GetPersistentRaftLog())) {
 		// TODO: See if we can avoid hack fix:
-		util.Log(util.WARN, "nextIndexZeroBased is out of range: %v", nextIndexZeroBased)
+		raftServer.log.Log(util.WARN, "nextIndexZeroBased is out of range: %v", nextIndexZeroBased)
 		return
 	}
-	logEntryToSend := GetPersistentRaftLogEntryAt(nextIndexZeroBased)
+	logEntryToSend := raftServer.GetPersistentRaftLogEntryAt(nextIndexZeroBased)
 	if nextIndexZeroBased >= 1 {
-		priorLogEntry := GetPersistentRaftLogEntryAt(nextIndexZeroBased - 1)
+		priorLogEntry := raftServer.GetPersistentRaftLogEntryAt(nextIndexZeroBased - 1)
 		request.PrevLogIndex = priorLogEntry.LogIndex
 		request.PrevLogTerm = priorLogEntry.LogEntry.Term
 	} else {
@@ -1866,42 +1862,42 @@ func SendAppendEntriesReplicationRpcForFollower(serverIndex int, client pb.RaftC
 		request.PrevLogTerm = 0
 	}
 
-	currentTerm := RaftCurrentTerm()
+	currentTerm := raftServer.RaftCurrentTerm()
 	request.Term = currentTerm
-	request.LeaderId = GetLocalNodeId()
+	request.LeaderId = raftServer.GetLocalNodeId()
 
-	request.LeaderCommit = GetCommitIndex()
+	request.LeaderCommit = raftServer.GetCommitIndex()
 
 	request.Entries = append(request.Entries, logEntryToSend.LogEntry)
 
 	result, err := client.AppendEntries(context.Background(), &request)
 	if err != nil {
-		util.Log(util.ERROR, "Error issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
+		raftServer.log.Log(util.ERROR, "Error issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
 		return
 	}
 	if result.ResponseStatus != uint32(codes.OK) {
-		util.Log(util.ERROR, "Error response issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
+		raftServer.log.Log(util.ERROR, "Error response issuing append entry to get followers to match our state. note: %v, err: %v", client, err)
 		return
 	}
 	if result.Term > currentTerm {
-		ChangeToFollowerIfTermStale(result.Term)
+		raftServer.ChangeToFollowerIfTermStale(result.Term)
 		return
 	}
 
 	if result.Success {
 		// We can update nextIndex and matchIndex for the follower.
-		SetNextIndexForServerAt(serverIndex, logEntryToSend.LogIndex+1)
-		SetMatchIndexForServerAt(serverIndex, logEntryToSend.LogIndex)
+		raftServer.SetNextIndexForServerAt(serverIndex, logEntryToSend.LogIndex+1)
+		raftServer.SetMatchIndexForServerAt(serverIndex, logEntryToSend.LogIndex)
 	} else {
 		// RPC failed, so decrement nextIndex. We will try again later automatically
 		// replication attempts are called in a loop.
-		DecrementNextIndexForServerAt(serverIndex)
+		raftServer.DecrementNextIndexForServerAt(serverIndex)
 	}
 }
 
 // Send heart beat rpcs to followers in parallel and waits for them to all complete.
-func SendHeartBeatsToFollowers() {
-	otherNodes := GetOtherNodes()
+func (raftServer *Server) SendHeartBeatsToFollowers() {
+	otherNodes := raftServer.GetOtherNodes()
 
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(len(otherNodes))
@@ -1910,18 +1906,18 @@ func SendHeartBeatsToFollowers() {
 		// Send RPCs in parallel. Pass copy of node to avoid race conditions.
 		go func(node pb.RaftClient) {
 			defer waitGroup.Done()
-			SendHeartBeatRpc(node)
+			raftServer.SendHeartBeatRpc(node)
 		}(node)
 	}
 	waitGroup.Wait()
 }
 
 // Sends a heartbeat rpc to the given raft node.
-func SendHeartBeatRpc(node pb.RaftClient) {
+func (raftServer *Server) SendHeartBeatRpc(node pb.RaftClient) {
 	request := pb.AppendEntriesRequest{}
-	request.Term = RaftCurrentTerm()
-	request.LeaderId = GetLocalNodeId()
-	request.LeaderCommit = GetCommitIndex()
+	request.Term = raftServer.RaftCurrentTerm()
+	request.LeaderId = raftServer.GetLocalNodeId()
+	request.LeaderCommit = raftServer.GetCommitIndex()
 
 	// Log entries are empty/nil for heartbeat rpcs, so no need to
 	// set previous log index, previous log term.
@@ -1929,14 +1925,14 @@ func SendHeartBeatRpc(node pb.RaftClient) {
 
 	result, err := node.AppendEntries(context.Background(), &request)
 	if err != nil {
-		util.Log(util.ERROR, "Error sending hearbeat to node: %v Error: %v", node, err)
+		raftServer.log.Log(util.ERROR, "Error sending hearbeat to node: %v Error: %v", node, err)
 		return
 	}
-	util.Log(util.VERBOSE, "Heartbeat RPC Response from node: %v Response: %v", node, result.ResponseStatus)
+	raftServer.log.Log(util.VERBOSE, "Heartbeat RPC Response from node: %v Response: %v", node, result.ResponseStatus)
 }
 
 // PrevLogTerm value  used in the appendentries rpc request. Should be called _after_ local local updated.
-func GetLeaderPreviousLogTerm() int64 {
+func (raftServer *Server) GetLeaderPreviousLogTerm() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -1954,7 +1950,7 @@ func GetLeaderPreviousLogTerm() int64 {
 
 // PrevLogIndex value  used in the appendentries rpc request. Should be called _after_ local log
 // already updated.
-func GetLeaderPreviousLogIndex() int64 {
+func (raftServer *Server) GetLeaderPreviousLogIndex() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -1971,28 +1967,28 @@ func GetLeaderPreviousLogIndex() int64 {
 }
 
 // Leader commit value used in the appendentries rpc request.
-func GetCommitIndex() int64 {
+func (raftServer *Server) GetCommitIndex() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	return raftServer.raftState.volatileState.commitIndex
 }
 
-func GetLastApplied() int64 {
+func (raftServer *Server) GetLastApplied() int64 {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	return raftServer.raftState.volatileState.lastApplied
 }
 
-func SetLastApplied(newValue int64) {
+func (raftServer *Server) SetLastApplied(newValue int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
 	raftServer.raftState.volatileState.lastApplied = newValue
 }
 
-func SetCommitIndex(newValue int64) {
+func (raftServer *Server) SetCommitIndex(newValue int64) {
 	raftServer.lock.Lock()
 	defer raftServer.lock.Unlock()
 
@@ -2003,16 +1999,16 @@ func SetCommitIndex(newValue int64) {
 }
 
 // Overall loop for the server.
-func StartServerLoop() {
+func (raftServer *Server) StartServerLoop() {
 
 	for {
-		serverState := GetServerState()
+		serverState := raftServer.GetServerState()
 		if serverState == Leader {
-			LeaderLoop()
+			raftServer.LeaderLoop()
 		} else if serverState == Follower {
-			FollowerLoop()
+			raftServer.FollowerLoop()
 		} else if serverState == Candidate {
-			CandidateLoop()
+			raftServer.CandidateLoop()
 		} else {
 			log.Fatalf("Unexpected / unknown server state: %v", serverState)
 		}

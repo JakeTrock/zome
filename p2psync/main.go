@@ -6,8 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
+	"github.com/jaketrock/zome/sync/util"
 	"github.com/jaketrock/zome/sync/util/raft"
 )
 
@@ -33,34 +33,28 @@ func main() {
 			" is what used to start the local raft server.")
 	flag.Parse()
 
+	logger := util.Logger{
+		Level: util.EXTRA_VERBOSE,
+	}
+
 	if *client {
-		zClient := &zomeClient{}
 		// client mode
 		fmt.Println("Starting in client mode")
-		zClient.Connect(*serverAddress)
-		if *cmdFile != "" {
-			content, err := os.ReadFile(*cmdFile)
-			if err != nil {
-				log.Fatal(err)
-			}
 
-			zClient.Batch(string(content))
-
-			if !*interactive {
-				os.Exit(0)
-			}
-		}
-		zClient.Repl()
+		zClient := InitializeClient(&logger, *serverAddress, *cmdFile, *interactive)
+		zClient.HandleSignals()
 	} else {
 		// server mode
+		fmt.Println("Starting in server mode")
+
 		nodes := ParseNodes(*nodesPtr)
 		port := GetLocalPort(nodes)
-		fmt.Println("Starting in server mode")
 		otherNodes := GetOtherNodes(nodes)
 		localNode := GetLocalNode(nodes)
 		log.Printf(" Starting Raft Server listening at: %v", port)
 		log.Printf("All Node addresses: %v", nodes)
 		log.Printf("Other Node addresses: %v", otherNodes)
-		raft.StartServer(localNode, otherNodes)
+		rs := raft.GetInitialServer(&logger)
+		rs.StartServer(localNode, otherNodes)
 	}
 }
