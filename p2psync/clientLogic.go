@@ -21,6 +21,11 @@ import (
 	proto "github.com/jaketrock/zome/sync/util/proto"
 )
 
+type zomeClient struct {
+	raftServer proto.RaftClient
+	conn       *grpc.ClientConn
+}
+
 // Parse command to determine whether it is RO or making changes
 func CommandIsRO(query string) bool {
 	// input trimmed at client
@@ -28,17 +33,17 @@ func CommandIsRO(query string) bool {
 	return strings.HasPrefix(queryUpper, selectQuery)
 }
 
-func Connect(addr string) {
-
+func (zc *zomeClient) Connect(addr string) {
 	// dial leader
 	var err error
-	conn, err = grpc.Dial(addr, grpc.WithInsecure())
+	//TODO: add secure dialing and multimodal dialing(e.g. over lora)
+	zc.conn, err = grpc.Dial(addr, grpc.WithInsecure())
 	if err != nil {
 		log.Fatalf("did not connect: %v", err)
 		os.Exit(1)
 	}
 
-	raftServer = proto.NewRaftClient(conn)
+	zc.raftServer = proto.NewRaftClient(zc.conn)
 }
 
 // ====
@@ -108,7 +113,7 @@ func Format(commandString string, sanitize bool) ([]string, error) {
 	return commands, nil
 }
 
-func Execute(commands []string) (string, error) {
+func (zc *zomeClient) Execute(commands []string) (string, error) {
 	var buf bytes.Buffer
 	numCommands := len(commands)
 	fmt.Printf("Have num SQL commands to process: %v\n", numCommands)
@@ -126,25 +131,31 @@ func Execute(commands []string) (string, error) {
 		var result *proto.ClientCommandResponse
 		var err error
 
-		// 5 reconn attempts if leader failure
+		// x reconn attempts if leader failure
 		for i := 0; i <= clientAttempts; i++ {
-			result, err = raftServer.ClientCommand(context.Background(), &commandRequest)
+			result, err = zc.raftServer.ClientCommand(context.Background(), &commandRequest)
 			if result == nil {
 				fmt.Println("Trying again")
 			}
 			if err != nil {
-				util.Log(util.ERROR, "Error sending command to node %v err: %v", raftServer, err)
+				util.Log(util.ERROR, "Error sending command to node %v err: %v", zc.raftServer, err)
+				if clientRetryOnBadCommand {
+					continue
+				}
 				return "", err
 			}
 
 			if result.ResponseStatus == uint32(codes.FailedPrecondition) {
 				util.Log(util.WARN, "Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
-				Connect(result.NewLeaderId)
+				zc.Connect(result.NewLeaderId)
 				continue
 			}
 
-			// TODO: may want to downgrade log fatals and not just abort if any query fails everywhere in the code
+			// TODO: downgrade log fatals and not just abort if any query fails everywhere in the code
 			if result.ResponseStatus != uint32(codes.OK) {
+				if clientRetryOnBadCommand {
+					continue
+				}
 				return "", errors.New(result.QueryResponse)
 			} else {
 				break
@@ -160,7 +171,7 @@ func Execute(commands []string) (string, error) {
 	return buf.String(), nil
 }
 
-func Repl() {
+func (zc *zomeClient) Repl() {
 	//handle signals appropriately; not quite like sqlite3
 	c := make(chan os.Signal, 1)
 	signal.Notify(c)
@@ -208,7 +219,7 @@ func Repl() {
 		if err != nil {
 			fmt.Println(err)
 		}
-		output, err := Execute(commands)
+		output, err := zc.Execute(commands)
 		if err != nil {
 			fmt.Println(err)
 		} else if output != "" {
@@ -217,12 +228,12 @@ func Repl() {
 		buf.Reset()
 	}
 
-	conn.Close()
+	zc.conn.Close()
 }
 
-func Batch(batchedCommands string) {
+func (zc *zomeClient) Batch(batchedCommands string) {
 	commands, _ := Format(batchedCommands, false)
-	_, err := Execute(commands)
+	_, err := zc.Execute(commands)
 	if err != nil {
 		fmt.Println(err)
 	} else {
