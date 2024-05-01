@@ -20,18 +20,20 @@ func mkNode(nodesList string) *raft.Server {
 	log.Printf(" Starting Raft Server listening at: %v", port)
 	log.Printf("All Node addresses: %v", nodes)
 	log.Printf("Other Node addresses: %v", otherNodes)
-	rs := raft.GetInitialServer(logLevel)
+	rs := raft.GetInitialServer()
 	rs.StartServer(localNode, otherNodes)
 	return rs
 }
 
 func mkClient(file string) *zomeClient {
-	zClient := InitializeClient(logLevel, "", file, false)
+	zClient := InitializeClient("", file, false)
 	zClient.HandleSignals()
 	return zClient
 }
 
 func Test_main(t *testing.T) { //TODO: spoof stdout
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.SetGlobalLevel(logLevel)
 	// servers
 	mkNode("localhost:50051,localhost:50052,localhost:50053")
 	mkNode("localhost:50052,localhost:50051,localhost:50053")

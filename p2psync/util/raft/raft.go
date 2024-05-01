@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -580,7 +579,7 @@ func (raftServer *Server) IsCandidate() bool {
 }
 
 // Returns initial server state.
-func GetInitialServer(logLevel zerolog.Level) *Server {
+func GetInitialServer() *Server {
 	result := Server{
 		serverState: Follower,
 		raftConfig: RaftConfig{
@@ -592,9 +591,6 @@ func GetInitialServer(logLevel zerolog.Level) *Server {
 		// in follower and this allows a node to determine when it should be a candidate.
 		lastHeartbeatTimeMillis: UnixMillis(),
 	}
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-
-	zerolog.SetGlobalLevel(logLevel)
 
 	return &result
 }

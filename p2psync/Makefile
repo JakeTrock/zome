@@ -9,7 +9,7 @@ dev:
 	$(GO) run $(filter-out %_test.go,$(wildcard *.go))
 
 test:
-	$(GO) test --log=0 ./...
+	$(GO) test -v ./...
 
 hbuild:
 	CGO_ENABLED=1 $(GO) build -o zomeSync *.go
@@ -18,13 +18,13 @@ runOneNode:
 	go run $(filter-out %_test.go,$(wildcard *.go)) --nodes=localhost:50051
 
 runThreeNodes:
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=2 --nodes=localhost:50051,localhost:50052,localhost:50053 --logPath="./node1_output.txt" &
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --nodes=localhost:50051,localhost:50052,localhost:50053 --logPath="./node1_output.txt" &
 	echo "Started Node 3"
 
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=2 --nodes=localhost:50052,localhost:50051,localhost:50053 --logPath="./node2_output.txt" &
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --nodes=localhost:50052,localhost:50051,localhost:50053 --logPath="./node2_output.txt" &
 	echo "Started Node 2"
 
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=2 --nodes=localhost:50053,localhost:50052,localhost:50051 --logPath="./node3_output.txt" &
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --nodes=localhost:50053,localhost:50052,localhost:50051 --logPath="./node3_output.txt" &
 	echo "Started all nodes"
 
 invalidTest:
@@ -34,22 +34,22 @@ invalidTest:
 
 clientImportTest:
 	echo "Running SQL data import ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=0 --client=true --batch='./data/clientImport.txt' --interactive=false
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --client=true --batch='./data/clientImport.txt' --interactive=false
 	sha256sum ./data/clientImport.db sqlite-db-localhost-50051.db sqlite-db-localhost-50052.db sqlite-db-localhost-50053.db
 
 wBench:
 	echo "Running SQL data bench write ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=0 --client=true --batch='./data/wHeavy.txt' --interactive=false
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --client=true --batch='./data/wHeavy.txt' --interactive=false
 	sha256sum ./data/wHeavy.db sqlite-db-localhost-50051.db sqlite-db-localhost-50052.db sqlite-db-localhost-50053.db
 
 rBench:
 	echo "Running SQL data bench read ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=0 --client=true --batch='./data/rHeavy.txt' --interactive=false
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --client=true --batch='./data/rHeavy.txt' --interactive=false
 	sha256sum ./data/wHeavy.db sqlite-db-localhost-50051.db sqlite-db-localhost-50052.db sqlite-db-localhost-50053.db
 
 clientShell:
 	echo "opening client shell ...\n"
-	go run $(filter-out %_test.go,$(wildcard *.go)) --log=0 --client=true --interactive=true
+	go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --client=true --interactive=true
 
 killAll:
 	echo "Stopping all nodes ..."

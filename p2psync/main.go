@@ -23,7 +23,7 @@ func main() {
 	// server state
 	client := flag.Bool("client", false, "Whether to start in client mode.")
 	// logging flags
-	logLevelInput := flag.Int("log", int(zerolog.InfoLevel), "Logging level. One of panic(5), fatal(4), error(3), warn(2), info(1), debug(0), trace(-1)")
+	logLevelInput := flag.Int("logLevel", int(zerolog.InfoLevel), "Logging level. One of panic(5), fatal(4), error(3), warn(2), info(1), debug(0), trace(-1)")
 	logPath := flag.String("logPath", "", "Path to optional log output file.")
 	// client flags
 	serverAddress := flag.String("server", defaultServerAddress, "Address of Raft Cluster Leader.")
@@ -57,7 +57,6 @@ func main() {
 	if *logPath != "" {
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 		zerolog.SetGlobalLevel(logLevel)
-		zerolog.SetGlobalLevel(logLevel)
 
 		// create log file if it doesn't exist
 		if _, err := os.Stat(*logPath); os.IsNotExist(err) {
@@ -79,7 +78,7 @@ func main() {
 		// client mode
 		log.Info().Msg("Starting in client mode")
 
-		zClient := InitializeClient(logLevel, *serverAddress, *cmdFile, *interactive)
+		zClient := InitializeClient(*serverAddress, *cmdFile, *interactive)
 		zClient.HandleSignals()
 	} else {
 		// server mode
@@ -92,7 +91,7 @@ func main() {
 		log.Info().Msgf(" Starting Raft Server listening at: %v", port)
 		log.Info().Msgf("All Node addresses: %v", nodes)
 		log.Info().Msgf("Other Node addresses: %v", otherNodes)
-		rs := raft.GetInitialServer(logLevel)
+		rs := raft.GetInitialServer()
 		rs.StartServer(localNode, otherNodes)
 	}
 }

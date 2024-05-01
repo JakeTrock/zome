@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/dlclark/regexp2"
-	"github.com/rs/zerolog"
 
 	"context"
 
@@ -26,10 +25,7 @@ type zomeClient struct {
 	conn       *grpc.ClientConn
 }
 
-func InitializeClient(logLevel zerolog.Level, serverAddress string, cmdFile string, interactive bool) *zomeClient {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-
-	zerolog.SetGlobalLevel(logLevel)
+func InitializeClient(serverAddress string, cmdFile string, interactive bool) *zomeClient {
 	zClient := &zomeClient{}
 	zClient.Connect(serverAddress)
 	if cmdFile != "" {
