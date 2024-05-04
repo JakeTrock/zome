@@ -6,7 +6,7 @@ import (
 	"flag"
 	"os"
 
-	"github.com/jaketrock/zome/sync/util/raft"
+	"github.com/jaketrock/zome/sync/raft"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -14,9 +14,6 @@ import (
 const (
 	selectQuery          = "SELECT"
 	defaultServerAddress = "localhost:50051"
-
-	clientAttempts          = 5
-	clientRetryOnBadCommand = false
 )
 
 func main() {
@@ -29,6 +26,9 @@ func main() {
 	serverAddress := flag.String("server", defaultServerAddress, "Address of Raft Cluster Leader.")
 	cmdFile := flag.String("batch", "", "Relative path to a command file to run in batch mode.")
 	interactive := flag.Bool("interactive", false, "whether batch mode should transition to interactive mode.")
+	clientAttempts := flag.Int("attempts", 5, "Number of times(5 by default) to retry a command before failing.")
+	clientRetryOnBadCommand := flag.Bool("retryOnBadCommand", false, "Whether to retry a command if it fails.")
+
 	// server flags
 	nodesPtr := flag.String("nodes", "",
 		"A comma separated list of node IP:port addresses."+
@@ -78,7 +78,7 @@ func main() {
 		// client mode
 		log.Info().Msg("Starting in client mode")
 
-		zClient := InitializeClient(*serverAddress, *cmdFile, *interactive)
+		zClient := InitializeClient(*serverAddress, *cmdFile, *interactive, *clientAttempts, *clientRetryOnBadCommand)
 		zClient.HandleSignals()
 	} else {
 		// server mode

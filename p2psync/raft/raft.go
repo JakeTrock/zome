@@ -8,7 +8,7 @@ import (
 	"math/rand"
 	"time"
 
-	pb "github.com/jaketrock/zome/sync/util/proto"
+	pb "github.com/jaketrock/zome/sync/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"

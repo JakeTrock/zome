@@ -5,7 +5,7 @@ package main
 import (
 	"strings"
 
-	"github.com/jaketrock/zome/sync/util/raft"
+	"github.com/jaketrock/zome/sync/raft"
 )
 
 func GetLocalNode(nodes []raft.Node) raft.Node {

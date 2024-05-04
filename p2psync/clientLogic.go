@@ -17,16 +17,21 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 
-	proto "github.com/jaketrock/zome/sync/util/proto"
+	proto "github.com/jaketrock/zome/sync/proto"
 )
 
 type zomeClient struct {
-	raftServer proto.RaftClient
-	conn       *grpc.ClientConn
+	raftServer              proto.RaftClient
+	conn                    *grpc.ClientConn
+	clientAttempts          int
+	clientRetryOnBadCommand bool
 }
 
-func InitializeClient(serverAddress string, cmdFile string, interactive bool) *zomeClient {
-	zClient := &zomeClient{}
+func InitializeClient(serverAddress string, cmdFile string, interactive bool, clientAttempts int, clientRetryOnBadCommand bool) *zomeClient {
+	zClient := &zomeClient{
+		clientAttempts:          clientAttempts,
+		clientRetryOnBadCommand: clientRetryOnBadCommand,
+	}
 	zClient.Connect(serverAddress)
 	if cmdFile != "" {
 		content, err := os.ReadFile(cmdFile)
@@ -153,28 +158,28 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 		var err error
 
 		// x reconn attempts if leader failure
-		for i := 0; i <= clientAttempts; i++ {
+		for i := 0; i <= zc.clientAttempts; i++ {
 			result, err = zc.raftServer.ClientCommand(context.Background(), &commandRequest)
 			if result == nil {
 				log.Error().Msgf("Error sending command to node %v err: %v", zc.raftServer, err)
 			}
 			if err != nil {
 				log.Error().Msgf("Error sending command to node %v err: %v", zc.raftServer, err)
-				if clientRetryOnBadCommand {
+				if zc.clientRetryOnBadCommand {
 					continue
 				}
 				return "", err
 			}
 
 			if result.ResponseStatus == uint32(codes.FailedPrecondition) {
-				log.Warn().Msgf("Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, clientAttempts)
+				log.Warn().Msgf("Reconnecting with new leader: %v (%v/%v)", result.NewLeaderId, i+1, zc.clientAttempts)
 				zc.Connect(result.NewLeaderId)
 				continue
 			}
 
 			// TODO: downgrade log fatals and not just abort if any query fails everywhere in the code
 			if result.ResponseStatus != uint32(codes.OK) {
-				if clientRetryOnBadCommand {
+				if zc.clientRetryOnBadCommand {
 					continue
 				}
 				return "", errors.New(result.QueryResponse)
