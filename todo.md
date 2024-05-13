@@ -12,5 +12,7 @@
   - "tombstone" data elements (locally?) with a bool rather than deleting, add some mechanism to mark diseased nodes, priority
   - only syndicate messages to people with permissions
 
+-  should raft time be abstract?
+
 https://github.com/mattn/go-sqlite3/blob/master/_example/simple/simple.go
 https://github.com/jervisfm/resqlite/tree/master
