@@ -26,7 +26,7 @@ func main() {
 	serverAddress := flag.String("server", defaultServerAddress, "Address of Raft Cluster Leader.")
 	cmdFile := flag.String("batch", "", "Relative path to a command file to run in batch mode.")
 	interactive := flag.Bool("interactive", false, "whether batch mode should transition to interactive mode.")
-	clientAttempts := flag.Int("attempts", 5, "Number of times(5 by default) to retry a command before failing.")
+	clientAttempts := flag.Int("attempts", 5, "Number of times (5 by default) to retry a command before failing.")
 	clientRetryOnBadCommand := flag.Bool("retryOnBadCommand", false, "Whether to retry a command if it fails.")
 
 	// server flags
@@ -78,20 +78,29 @@ func main() {
 		// client mode
 		log.Info().Msg("Starting in client mode")
 
-		zClient := InitializeClient(*serverAddress, *cmdFile, *interactive, *clientAttempts, *clientRetryOnBadCommand)
+		zClient := &zomeClient{
+			clientAttempts:          *clientAttempts,
+			clientRetryOnBadCommand: *clientRetryOnBadCommand,
+			clientServerAddress:     *serverAddress,
+			clientCmdFile:           *cmdFile,
+			clientInteractive:       *interactive,
+
+			getConnection: DefaultClient.getConnection,
+		}
+
+		zClient.InitializeClient()
 		zClient.HandleSignals()
 	} else {
 		// server mode
 		log.Info().Msg("Starting in server mode")
 
 		nodes := ParseNodes(*nodesPtr)
-		port := GetLocalPort(nodes)
 		otherNodes := GetOtherNodes(nodes)
 		localNode := GetLocalNode(nodes)
-		log.Info().Msgf(" Starting Raft Server listening at: %v", port)
+		log.Info().Msgf("Starting Raft Server listening at: %v", GetLocalPort(nodes))
 		log.Info().Msgf("All Node addresses: %v", nodes)
 		log.Info().Msgf("Other Node addresses: %v", otherNodes)
-		rs := raft.GetInitialServer()
+		rs := raft.GetDefaultServer()
 		rs.StartServer(localNode, otherNodes)
 	}
 }

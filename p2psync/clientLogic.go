@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/dlclark/regexp2"
 
@@ -16,37 +18,74 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 
 	proto "github.com/jaketrock/zome/sync/proto"
 )
 
 type zomeClient struct {
-	raftServer              proto.RaftClient
-	conn                    *grpc.ClientConn
+	raftServer proto.RaftClient
+	conn       *grpc.ClientConn
+
 	clientAttempts          int
 	clientRetryOnBadCommand bool
+	clientInteractive       bool
+	clientCmdFile           string
+	clientServerAddress     string
+
+	getConnection func(target string) (*grpc.ClientConn, proto.RaftClient)
 }
 
-func InitializeClient(serverAddress string, cmdFile string, interactive bool, clientAttempts int, clientRetryOnBadCommand bool) *zomeClient {
-	zClient := &zomeClient{
-		clientAttempts:          clientAttempts,
-		clientRetryOnBadCommand: clientRetryOnBadCommand,
+var DefaultClient = &zomeClient{
+
+	clientAttempts:          5,
+	clientRetryOnBadCommand: false,
+	clientServerAddress:     "localhost:50051",
+	clientCmdFile:           "",
+	clientInteractive:       true,
+
+	getConnection: func(target string) (*grpc.ClientConn, proto.RaftClient) {
+		// dial leader
+		//TODO: add secure dialing, switch to using grpc.WithContextDialer()
+		conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Error().Msgf("Failed to connect: %v", err)
+			return nil, nil
+		} else {
+			log.Info().Msgf("Connected to leader: %v", target)
+			rc := proto.NewRaftClient(conn)
+			return conn, rc
+		}
+	},
+}
+
+func (zc *zomeClient) InitializeClient() {
+	for i := 0; i < zc.clientAttempts; i++ {
+		zc.Connect(zc.clientServerAddress)
+		if zc.raftServer != nil {
+			break
+		} else if i == zc.clientAttempts-1 {
+			log.Error().Msgf("Failed to connect to leader after %v attempts", zc.clientAttempts)
+			os.Exit(1)
+		}
+		// logarithmic delay
+		delTime := time.Duration(math.Pow(2, float64(i+1))) * time.Second
+		log.Warn().Msgf("Delaying leader connection attempt %v of %v for %v", i+1, zc.clientAttempts, delTime)
+		time.Sleep(delTime)
 	}
-	zClient.Connect(serverAddress)
-	if cmdFile != "" {
-		content, err := os.ReadFile(cmdFile)
+	if zc.clientCmdFile != "" {
+		content, err := os.ReadFile(zc.clientCmdFile)
 		if err != nil {
 			log.Error().Msgf("Error reading file: %v", err)
 			os.Exit(1)
 		}
 
-		zClient.Batch(string(content))
+		zc.Batch(string(content))
 
-		if !interactive {
+		if !zc.clientInteractive {
 			os.Exit(0)
 		}
 	}
-	return zClient
 }
 
 // Parse command to determine whether it is RO or making changes
@@ -57,16 +96,7 @@ func CommandIsRO(query string) bool {
 }
 
 func (zc *zomeClient) Connect(addr string) {
-	// dial leader
-	var err error
-	//TODO: add secure dialing and multimodal dialing(e.g. over lora)
-	zc.conn, err = grpc.Dial(addr, grpc.WithInsecure())
-	if err != nil {
-		log.Error().Msgf("did not connect: %v", err)
-		os.Exit(1)
-	}
-
-	zc.raftServer = proto.NewRaftClient(zc.conn)
+	zc.conn, zc.raftServer = zc.getConnection(addr)
 }
 
 // ====
@@ -142,7 +172,7 @@ func (zc *zomeClient) Format(commandString string, sanitize bool) ([]string, err
 func (zc *zomeClient) Execute(commands []string) (string, error) {
 	var buf bytes.Buffer
 	numCommands := len(commands)
-	fmt.Printf("Have num SQL commands to process: %v\n", numCommands)
+	fmt.Printf("Have %v SQL commands to process\n", numCommands)
 	for i, command := range commands {
 		if i%1000 == 0 {
 			fmt.Printf("Processing command %v of %v\n", i+1, numCommands)
@@ -158,7 +188,7 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 		var err error
 
 		// x reconn attempts if leader failure
-		for i := 0; i <= zc.clientAttempts; i++ {
+		for i := 0; i < zc.clientAttempts; i++ {
 			result, err = zc.raftServer.ClientCommand(context.Background(), &commandRequest)
 			if result == nil {
 				log.Error().Msgf("Error sending command to node %v err: %v", zc.raftServer, err)

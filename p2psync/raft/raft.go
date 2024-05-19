@@ -3,14 +3,14 @@
 package raft
 
 import (
-	"net"
-
 	"math/rand"
+	"net"
 	"time"
 
 	pb "github.com/jaketrock/zome/sync/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/reflection"
 
 	"bytes"
@@ -83,6 +83,12 @@ type Server struct {
 
 	// Mutex to synchronize concurrent access to data structure
 	lock sync.Mutex
+
+	// Abstracted networking
+	GetConnection func(target string) (*grpc.ClientConn, pb.RaftClient)
+
+	// Abstracted nw listener
+	GetListener func(identifier string) (net.Listener, error)
 }
 
 // Overall type for the messages processed by the event-loop.
@@ -521,25 +527,16 @@ type Node struct {
 // Connects to a Raft server listening at the given address and returns a client
 // to talk to this server.
 func (raftServer *Server) ConnectToServer(address string) pb.RaftClient {
-	// Set up a connection to the server. Note: this is not a blocking call.
-	// Connection will be setup in the background.
-	//TODO: remove deprecated grpc.WithInsecure() option
-	conn, err := grpc.Dial(address, grpc.WithInsecure())
-	if err != nil {
-		log.Error().Msgf("Failed to connect to server at: %v", address)
-	}
-	c := pb.NewRaftClient(conn)
-
+	_, c := raftServer.GetConnection(address)
 	return c
 }
 
 // Starts a Raft Server listening at the specified local node.
 // otherNodes contain contact information for other nodes in the cluster.
 func (raftServer *Server) StartServer(localNode Node, otherNodes []Node) *grpc.Server {
-	addressPort := ":" + localNode.Port
-	lis, err := net.Listen("tcp", addressPort)
+	lis, err := raftServer.GetListener(localNode.Port)
 	if err != nil {
-		log.Error().Msgf("Failed to listen on: %v", addressPort)
+		log.Error().Msgf("Failed to get listener for server at: %v", localNode)
 	}
 	log.Debug().Msgf("Created Raft server at: %v", lis.Addr().String())
 	s := grpc.NewServer()
@@ -552,12 +549,15 @@ func (raftServer *Server) StartServer(localNode Node, otherNodes []Node) *grpc.S
 
 	// Initialize raft cluster.
 	raftServer.otherNodes = raftServer.ConnectToOtherNodes(otherNodes)
-	raftServer.localNode = localNode
-	go raftServer.InitializeRaft(addressPort, otherNodes)
+	raftServer.localNode = localNode //TODO: stop using/revise node type, be more abstract for future nw abstractions
+	go func() {
+		raftServer.InitializeDatabases()
+		raftServer.StartServerLoop()
+	}()
 
 	// Note: the Serve call is blocking.
 	if err := s.Serve(lis); err != nil {
-		log.Error().Msgf("Failed to serve on: %v", addressPort)
+		log.Error().Msgf("Failed to serve on: %v", localNode.Port)
 	}
 
 	return s
@@ -578,21 +578,41 @@ func (raftServer *Server) IsCandidate() bool {
 	return raftServer.GetServerState() == Candidate
 }
 
-// Returns initial server state.
-func GetInitialServer() *Server {
-	result := Server{
+func GetDefaultServer() *Server {
+	return &Server{
 		serverState: Follower,
+		events:      make(chan Event),
+		// We initialize last heartbeat time at startup because all servers start out
+		// in follower and this allows a node to determine when it should be a candidate.
+		lastHeartbeatTimeMillis: UnixMillis(),
 		raftConfig: RaftConfig{
 			electionTimeoutMillis:   PickElectionTimeOutMillis(),
 			heartBeatIntervalMillis: 10,
 		},
-		events: make(chan Event),
-		// We initialize last heartbeat time at startup because all servers start out
-		// in follower and this allows a node to determine when it should be a candidate.
-		lastHeartbeatTimeMillis: UnixMillis(),
+		GetConnection: func(target string) (*grpc.ClientConn, pb.RaftClient) {
+			// Set up a connection to the server. Note: this is not a blocking call.
+			// Connection will be setup in the background.
+			//TODO: remove deprecated grpc.WithInsecure() option
+			conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			if err != nil {
+				log.Error().Msgf("Failed to connect to server at: %v", target)
+				return nil, nil
+			} else {
+				log.Debug().Msgf("Connected to Raft server at: %v", target)
+				c := pb.NewRaftClient(conn)
+				return conn, c
+			}
+		},
+		GetListener: func(identifier string) (net.Listener, error) {
+			addressPort := ":" + identifier
+			lis, err := net.Listen("tcp", addressPort)
+			if err != nil {
+				log.Error().Msgf("Failed to listen on: %v", addressPort)
+				return nil, err
+			}
+			return lis, nil
+		},
 	}
-
-	return &result
 }
 
 // Returns a go channel that blocks for specified amount of time.
@@ -681,13 +701,7 @@ func (raftServer *Server) GetLocalNodeId() string {
 	return raftServer.GetNodeId(raftServer.GetLocalNode())
 }
 
-// Initializes Raft on server startup.
-func (raftServer *Server) InitializeRaft(addressPort string, otherNodes []Node) {
-	raftServer.InitializeDatabases()
-	raftServer.StartServerLoop()
-}
-
-func (raftServer *Server) InitializeDatabases() {
+func (raftServer *Server) InitializeDatabases() { //TODO: abstract this so you can use any db/location
 	raftDbLog, err := sql.Open("sqlite3", raftServer.GetSqliteRaftLogPath())
 	if err != nil {
 		log.Error().Msgf("Failed to open raft db log.")
@@ -1005,7 +1019,7 @@ func (raftServer *Server) FollowerLoop() {
 
 		select {
 		case event := <-raftServer.events:
-			log.Debug().Msgf("Processing rpc #%v event: %v", rpcCount, event)
+			log.Debug().Msgf("Processing rpc #%v event: %v", rpcCount, EventString(event.rpc))
 			raftServer.handleRpcEvent(event)
 			rpcCount++
 		case <-timeoutTimer.C:
@@ -1013,6 +1027,18 @@ func (raftServer *Server) FollowerLoop() {
 			raftServer.ChangeToCandidateStatus()
 			return
 		}
+	}
+}
+
+func EventString(rpcEvent RpcEvent) string {
+	if rpcEvent.requestVote != nil {
+		return "RequestVote"
+	} else if rpcEvent.appendEntries != nil {
+		return "AppendEntries"
+	} else if rpcEvent.clientCommand != nil {
+		return "ClientCommand"
+	} else {
+		return "Unknown"
 	}
 }
 
@@ -1516,7 +1542,7 @@ func (raftServer *Server) RequestVotesFromOtherNodes() int64 {
 
 	log.Debug().Msgf("Have %v votes at start", raftServer.GetVoteCount())
 	otherNodes := raftServer.GetOtherNodes()
-	log.Debug().Msgf("Requesting votes from other nodes: %v", raftServer.GetOtherNodes())
+	log.Debug().Msgf("Requesting votes from other nodes: %v", otherNodes)
 
 	// Make RPCs in parallel but wait for all of them to complete.
 	var waitGroup sync.WaitGroup
@@ -1927,7 +1953,7 @@ func (raftServer *Server) SendHeartBeatRpc(node pb.RaftClient) {
 
 	result, err := node.AppendEntries(context.Background(), &request)
 	if err != nil {
-		log.Error().Msgf("Error sending hearbeat to node: %v Error: %v", node, err)
+		log.Error().Msgf("Error sending heartbeat to node: %v Error: %v", node, err)
 		return
 	}
 	log.Debug().Msgf("Heartbeat RPC Response from node: %v Response: %v", node, result.ResponseStatus)
@@ -2002,7 +2028,6 @@ func (raftServer *Server) SetCommitIndex(newValue int64) {
 
 // Overall loop for the server.
 func (raftServer *Server) StartServerLoop() {
-
 	for {
 		serverState := raftServer.GetServerState()
 		if serverState == Leader {
