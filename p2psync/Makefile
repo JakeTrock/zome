@@ -19,13 +19,13 @@ runOneNode:
 
 runThreeNodes:
 	@go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --nodes=localhost:50051,localhost:50052,localhost:50053 --logPath="./node1_output.txt"&
-	@printf "Started Node 3\n"&
+	@printf "Started Node 1\n"&
 
 	@go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --nodes=localhost:50052,localhost:50051,localhost:50053 --logPath="./node2_output.txt"&
 	@printf "Started Node 2\n"&
 
 	@go run $(filter-out %_test.go,$(wildcard *.go)) --logLevel=0 --nodes=localhost:50053,localhost:50052,localhost:50051 --logPath="./node3_output.txt"&
-	@printf "Started all nodes"
+	@printf "Started Node 3\nStarted all nodes"
 
 invalidTest:
 	@printf "Running invalid test ...\n"
