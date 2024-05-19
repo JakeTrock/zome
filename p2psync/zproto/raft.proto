@@ -3,9 +3,9 @@ syntax = "proto3";
 option java_multiple_files = true;
 option java_package = "com.github.zome.sync.raft";
 option java_outer_classname = "RaftProto";
-option go_package = "./proto";
+option go_package = "./zproto";
 
-package proto;
+package zproto_raft;
 
 // The Raft service definition.
 service Raft {

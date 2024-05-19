@@ -20,11 +20,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 
-	proto "github.com/jaketrock/zome/sync/proto"
+	"github.com/jaketrock/zome/sync/zproto"
 )
 
 type zomeClient struct {
-	raftServer proto.RaftClient
+	raftServer zproto.RaftClient
 	conn       *grpc.ClientConn
 
 	clientAttempts          int
@@ -33,7 +33,7 @@ type zomeClient struct {
 	clientCmdFile           string
 	clientServerAddress     string
 
-	getConnection func(target string) (*grpc.ClientConn, proto.RaftClient)
+	getConnection func(target string) (*grpc.ClientConn, zproto.RaftClient)
 }
 
 var DefaultClient = &zomeClient{
@@ -44,7 +44,7 @@ var DefaultClient = &zomeClient{
 	clientCmdFile:           "",
 	clientInteractive:       true,
 
-	getConnection: func(target string) (*grpc.ClientConn, proto.RaftClient) {
+	getConnection: func(target string) (*grpc.ClientConn, zproto.RaftClient) {
 		// dial leader
 		//TODO: add secure dialing, switch to using grpc.WithContextDialer()
 		conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -53,7 +53,7 @@ var DefaultClient = &zomeClient{
 			return nil, nil
 		} else {
 			log.Info().Msgf("Connected to leader: %v", target)
-			rc := proto.NewRaftClient(conn)
+			rc := zproto.NewRaftClient(conn)
 			return conn, rc
 		}
 	},
@@ -177,14 +177,14 @@ func (zc *zomeClient) Execute(commands []string) (string, error) {
 		if i%1000 == 0 {
 			fmt.Printf("Processing command %v of %v\n", i+1, numCommands)
 		}
-		commandRequest := proto.ClientCommandRequest{}
+		commandRequest := zproto.ClientCommandRequest{}
 		if CommandIsRO(command) {
 			commandRequest.Query = command
 		} else {
 			commandRequest.Command = command
 		}
 
-		var result *proto.ClientCommandResponse
+		var result *zproto.ClientCommandResponse
 		var err error
 
 		// x reconn attempts if leader failure

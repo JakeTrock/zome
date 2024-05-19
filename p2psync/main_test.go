@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jaketrock/zome/sync/proto"
 	"github.com/jaketrock/zome/sync/raft"
+	"github.com/jaketrock/zome/sync/zproto"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +59,7 @@ func mkNode(nodesList string) *raft.Server {
 	log.Info().Msgf("Other Node addresses: %v", otherNodes)
 	rs := raft.GetDefaultServer()
 
-	rs.GetConnection = (func(target string) (*grpc.ClientConn, proto.RaftClient) {
+	rs.GetConnection = (func(target string) (*grpc.ClientConn, zproto.RaftClient) {
 		// Set up a connection to the server. Note: this is not a blocking call.
 		// Connection will be setup in the background.
 		conn, err := grpc.DialContext(ctx, "bufnet",
@@ -71,7 +71,7 @@ func mkNode(nodesList string) *raft.Server {
 			return nil, nil
 		} else {
 			log.Debug().Msgf("Connected to Raft server at: %v", target)
-			c := proto.NewRaftClient(conn)
+			c := zproto.NewRaftClient(conn)
 			return conn, c
 		}
 	})
@@ -98,7 +98,7 @@ func mkClient(file string) *zomeClient {
 		clientCmdFile:           file,
 		clientInteractive:       true,
 
-		getConnection: func(target string) (*grpc.ClientConn, proto.RaftClient) {
+		getConnection: func(target string) (*grpc.ClientConn, zproto.RaftClient) {
 			// dial leader
 			//TODO: add secure dialing
 			conn, err := grpc.DialContext(ctx, "bufnet",
@@ -108,7 +108,7 @@ func mkClient(file string) *zomeClient {
 				log.Error().Msgf("did not connect: %v", err)
 			} else {
 				log.Info().Msgf("Connected to leader: %v", target)
-				rc := proto.NewRaftClient(conn)
+				rc := zproto.NewRaftClient(conn)
 				return conn, rc
 			}
 			return nil, nil
