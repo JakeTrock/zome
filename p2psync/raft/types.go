@@ -1,5 +1,3 @@
-//go:generate protoc -I ../proto/raft --go_out=plugins=grpc:../proto/raft ../proto/raft/raft.proto
-
 package raft
 
 import (
