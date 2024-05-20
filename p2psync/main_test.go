@@ -117,18 +117,6 @@ func mkClient(file string) *zomeClient {
 	return zClient
 }
 
-// func randString(length int) string {
-// 	bytes := make([]byte, length)
-// 	for i := 0; i < length; i++ {
-// 		bytes[i] = byte(randInt(65, 90))
-// 	}
-// 	return string(bytes)
-// }
-
-// func randInt(i1, i2 int) int {
-// 	return rand.Intn(i2-i1) + i1
-// }
-
 type countingWriter struct {
 	writer        io.Writer
 	filters       []string
@@ -156,7 +144,7 @@ func (cw *countingWriter) Write(p []byte) (n int, err error) {
 	return n, scanner.Err()
 }
 
-func kill_Test_OneNode(t *testing.T) {
+func Test_OneNode(t *testing.T) {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.SetGlobalLevel(logLevel)
 	//mock os.file in memory
@@ -193,12 +181,58 @@ func kill_Test_OneNode(t *testing.T) {
 	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port1))
 }
 
-func Test_ThreeNode(t *testing.T) {
+func Test_Two_Node(t *testing.T) {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	zerolog.SetGlobalLevel(logLevel)
 	//mock os.file in memory
 	cw := &countingWriter{
-		writer:  zerolog.ConsoleWriter{Out: os.Stdout}, // can be switched for os.Stdout
+		writer:  zerolog.ConsoleWriter{Out: io.Discard}, // can be switched for os.Stdout
+		filters: []string{"Command replicated successfully", "Batch executed", "Connected to leader"},
+		filterResults: map[string]int{
+			"Command replicated successfully": 0,
+			"Batch executed":                  0,
+			"Connected to leader":             0,
+		},
+	}
+	log.Logger = zerolog.New(cw).With().Timestamp().Logger()
+
+	port1 := 50051
+	port2 := 50052
+
+	// servers
+	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v", port1, port2))
+	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v", port2, port1))
+
+	time.Sleep(14 * time.Second)
+	mkClient("./data/clientImport.txt")
+
+	master_hash := getHashOfFile("./data/clientImport.db")
+
+	fh1 := getHashOfFile(fmt.Sprintf("./sqlite-db-localhost-%v.db", port1))
+	fh2 := getHashOfFile(fmt.Sprintf("./sqlite-db-localhost-%v.db", port2))
+
+	// assert log messages are present in correct quantities
+	assert.Equal(t, 15638, cw.filterResults["Command replicated successfully"])
+	assert.Equal(t, 1, cw.filterResults["Batch executed"])
+	assert.Equal(t, 1, cw.filterResults["Connected to leader"])
+
+	// assert all 3 files match master file
+	assert.Equal(t, master_hash, fh1)
+	assert.Equal(t, master_hash, fh2)
+
+	//remove all spawned files
+	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port1))
+	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port2))
+	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port1))
+	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port2))
+}
+
+func Test_Three_Node_Complete(t *testing.T) {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	zerolog.SetGlobalLevel(logLevel)
+	//mock os.file in memory
+	cw := &countingWriter{
+		writer:  zerolog.ConsoleWriter{Out: io.Discard}, // can be switched for os.Stdout
 		filters: []string{"Command replicated successfully", "Batch executed", "Connected to leader"},
 		filterResults: map[string]int{
 			"Command replicated successfully": 0,
@@ -213,11 +247,9 @@ func Test_ThreeNode(t *testing.T) {
 	port3 := 50053
 
 	// servers
-	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v", port1, port2))
-	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v", port2, port1))
-	// go mkNode(fmt.Sprintf("localhost:%v,localhost:%v,localhost:%v", port1, port2, port3)) //TODO: methinks the problem is that these are parsed wrong and cannot find frens?
-	// go mkNode(fmt.Sprintf("localhost:%v,localhost:%v,localhost:%v", port2, port1, port3))
-	// go mkNode(fmt.Sprintf("localhost:%v,localhost:%v,localhost:%v", port3, port2, port1))
+	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v,localhost:%v", port1, port2, port3))
+	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v,localhost:%v", port2, port3, port1))
+	go mkNode(fmt.Sprintf("localhost:%v,localhost:%v,localhost:%v", port3, port2, port1))
 
 	time.Sleep(14 * time.Second)
 	mkClient("./data/clientImport.txt")
@@ -231,83 +263,23 @@ func Test_ThreeNode(t *testing.T) {
 	// assert log messages are present in correct quantities
 	assert.Equal(t, 15638, cw.filterResults["Command replicated successfully"])
 	assert.Equal(t, 1, cw.filterResults["Batch executed"])
-	assert.Equal(t, 3, cw.filterResults["Connected to leader"])
+	assert.Equal(t, 1, cw.filterResults["Connected to leader"])
 
 	// assert all 3 files match master file
 	assert.Equal(t, master_hash, fh1)
 	assert.Equal(t, master_hash, fh2)
 	assert.Equal(t, master_hash, fh3)
+
+	//remove all spawned files
+	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port1))
+	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port2))
+	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port3))
+	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port1))
+	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port2))
+	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port3))
 }
 
-// func Test_main(t *testing.T) { //TODO: spoof stdout
-// 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-// 	zerolog.SetGlobalLevel(logLevel)
-// 	log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
-// 	port1 := 50051
-// 	port2 := 50052
-// 	port3 := 50053
-
-// 	// servers
-// 	// var wg sync.WaitGroup
-// 	var urls = []string{
-// 		fmt.Sprintf(
-// 			"localhost:%v,localhost:%v,localhost:%v",
-// 			port1, port2, port3),
-// 		fmt.Sprintf(
-// 			"localhost:%v,localhost:%v,localhost:%v",
-// 			port2, port1, port3),
-// 		fmt.Sprintf(
-// 			"localhost:%v,localhost:%v,localhost:%v",
-// 			port3, port2, port1),
-// 	}
-// 	for _, url := range urls {
-// 		// 	// Increment the WaitGroup counter.
-// 		// 	wg.Add(1)
-// 		// 	// Launch a goroutine to fetch the URL.
-// 		// 	go func(url string) {
-// 		// 		// Decrement the counter when the goroutine completes.
-// 		// 		defer wg.Done()
-// 		// 		defer fmt.Println("finished fetching " + url)
-// 		go mkNode(url)
-// 		// 	}(url)
-// 	}
-// 	// Wait for all HTTP fetches to complete.
-// 	// wg.Wait()
-
-// 	// clients
-// 	//wait for servers to start
-// 	// for {
-// 	// 	if rs1 != nil && rs2 != nil && rs3 != nil {
-// 	// 		fmt.Println("finished starting servers")
-// 	time.Sleep(14 * time.Second)
-// 	mkClient("./data/clientImport.txt")
-
-// 	//test all 3 files match hash of master file
-// 	master_hash := getHashOfFile("./data/clientImport.db")
-
-// 	fh1 := getHashOfFile(fmt.Sprintf("./sqlite-db-localhost-%v.db", port1))
-// 	fh2 := getHashOfFile(fmt.Sprintf("./sqlite-db-localhost-%v.db", port2))
-// 	fh3 := getHashOfFile(fmt.Sprintf("./sqlite-db-localhost-%v.db", port3))
-
-// 	//assert all 3 files match master file
-// 	assert.Equal(t, master_hash, fh1)
-// 	assert.Equal(t, master_hash, fh2)
-// 	assert.Equal(t, master_hash, fh3)
-
-// 	// clean up after
-
-// 	// remove all dbs
-// 	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port1))
-// 	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port2))
-// 	os.RemoveAll(fmt.Sprintf("./sqlite-db-localhost-%v.db", port3))
-// 	//remove all raftlogs
-// 	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port1))
-// 	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port2))
-// 	os.RemoveAll(fmt.Sprintf("./sqlite-raft-log-localhost-%v.db", port3))
-// 	// break
-// 	// 	}
-// 	// }
-// }
+//TODO: more test permutations
 
 func getHashOfFile(path string) string {
 	hash := sha256.New()

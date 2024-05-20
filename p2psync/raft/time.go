@@ -28,11 +28,7 @@ func (raftServer *Server) TimeSinceLastHeartBeatMillis() int64 {
 func (raftServer *Server) IsElectionTimeoutElapsed() bool {
 	timeoutMs := raftServer.GetConfigElectionTimeoutMillis()
 	elapsedMs := raftServer.TimeSinceLastHeartBeatMillis()
-	if elapsedMs > timeoutMs {
-		return true
-	} else {
-		return false
-	}
+	return elapsedMs > timeoutMs
 }
 
 // Resets the election time out. This restarts amount of time that has to pass
